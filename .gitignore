@@ -127,3 +127,6 @@ dist
 .pnp.*
 .output
 package
+
+# Local reference materials
+.reference/

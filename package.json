@@ -38,6 +38,7 @@
     "artifactName": "hdhelper-${version}.${ext}",
     "productName": "Helldivers2 Helper",
     "files": [
+      "!.reference/**",
       "!.nuxt/**",
       "!generator/**",
       "!public/**",
