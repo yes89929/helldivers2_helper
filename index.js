@@ -1,4 +1,5 @@
-import { MoveMouse, Key, keyboard, getForegroundWindowHWND, getWindowText, getWindowRect, KeyPress, KeyRelease, KeyPressAndRelease, MouseLeftClick, MouseRightClick, windowFocus, sendText, MouseLeftPress, MouseLeftRelease, MouseRightPress, MouseRightRelease, GetMousePosition, captureScreen } from './src/user32.js'
+import { MoveMouse, Key, keyboard, getForegroundWindowHWND, getWindowText, getWindowRect, KeyPress, KeyRelease, KeyPressAndRelease, TapKey, MouseLeftClick, MouseRightClick, windowFocus, sendText, MouseLeftPress, MouseLeftRelease, MouseRightPress, MouseRightRelease, GetMousePosition, captureScreen } from './src/user32.js'
+import { runStratagemAutoSelect } from './src/loadout-autoselect.js'
 import { app, BrowserWindow, protocol, net, ipcMain, Notification, Menu, dialog, shell, desktopCapturer, screen, clipboard } from 'electron'
 import pkg from 'electron-updater'
 const { autoUpdater } = pkg
@@ -86,6 +87,7 @@ let keyBinds = {
   autokey_sub: 'XBUTTON2',
   autokey_sub2: 'MBUTTON',
   record: 'F1',
+  autoselect: null,
 }
 
 const settingPath = path.join(userdatapath, 'user.settings.json')
@@ -108,6 +110,7 @@ const saveKeySetting = () => {
     autokey_sub: keyBinds.autokey_sub,
     autokey_sub2: keyBinds.autokey_sub2,
     record: keyBinds.record,
+    autoselect: keyBinds.autoselect,
   }))
   windows['overlay'].webContents.send('keybinds', keyBinds)
 
@@ -123,6 +126,35 @@ const savePresets = () => {
     console.error('프리셋 저장 실패:', e)
   }
 }
+
+// 자동 장착(자동 선택)에서 제외할 미보유 스트라타젬 이름 목록
+const disabledItemsPath = path.join(userdatapath, 'user.settings.disabled.json')
+let disabledItems = []
+const saveDisabledItems = () => {
+  try {
+    fs.writeFileSync(disabledItemsPath, JSON.stringify(disabledItems))
+  } catch (e) {
+    console.error('제외 목록 저장 실패:', e)
+  }
+}
+ipcMain.on('disabled_items', (_, array) => {
+  disabledItems = Array.isArray(array) ? array : []
+  saveDisabledItems()
+})
+
+// 자동 장착 설정
+let autoselect_enabled = true
+ipcMain.on('autoselect_enabled', (_, value) => {
+  autoselect_enabled = value
+  settings.autoselect_enabled = autoselect_enabled
+  saveSetting()
+})
+let autoselect_input_delay = 30
+ipcMain.on('autoselect_input_delay', (_, value) => {
+  autoselect_input_delay = Math.max(30, Math.min(100, parseInt(value) || 30))
+  settings.autoselect_input_delay = autoselect_input_delay
+  saveSetting()
+})
 
 let instantfire = true
 ipcMain.on('instantfire', (_, value) => {
@@ -472,6 +504,8 @@ if (fs.existsSync(settingPath)) {
   if (settings.deathcam_webp !== undefined) deathcam_webp = settings.deathcam_webp
   if (settings.output_idx !== undefined) output_idx = settings.output_idx
   if (settings.displaylength !== undefined) displaylength = settings.displaylength
+  if (settings.autoselect_enabled !== undefined) autoselect_enabled = settings.autoselect_enabled
+  if (settings.autoselect_input_delay !== undefined) autoselect_input_delay = settings.autoselect_input_delay
 }
 if (fs.existsSync(keysettingPath)) {
   const keyBindsRead = JSON.parse(fs.readFileSync(keysettingPath, 'utf8'))
@@ -485,6 +519,7 @@ if (fs.existsSync(keysettingPath)) {
   if (keyBinds.autokey_sub) keyBinds['autokey_sub'] = keyBindsRead.autokey_sub
   if (keyBinds.autokey_sub2) keyBinds['autokey_sub2'] = keyBindsRead.autokey_sub2
   if (keyBinds.record) keyBinds['record'] = keyBindsRead.record
+  if (keyBindsRead.autoselect !== undefined) keyBinds['autoselect'] = keyBindsRead.autoselect
 }
 if (fs.existsSync(presetsPath)) {
   try {
@@ -492,6 +527,14 @@ if (fs.existsSync(presetsPath)) {
     if (Array.isArray(presetsRead)) presets = presetsRead
   } catch (e) {
     console.error('프리셋 로드 실패:', e)
+  }
+}
+if (fs.existsSync(disabledItemsPath)) {
+  try {
+    const disabledRead = JSON.parse(fs.readFileSync(disabledItemsPath, 'utf8'))
+    if (Array.isArray(disabledRead)) disabledItems = disabledRead
+  } catch (e) {
+    console.error('제외 목록 로드 실패:', e)
   }
 }
 
@@ -1161,6 +1204,11 @@ const createMainWindow = () => {
         }
         return
       }
+      // 자동 장착(자동 선택) 단축키: 로드아웃 화면에서 한 번 눌러 설정된 스트라타젬을 자동 선택
+      if (autoselect_enabled && keyBinds['autoselect'] && key == keyBinds['autoselect']) {
+        if (state) runAutoSelect()
+        return
+      }
       if (key == keyBinds['reload'] && state) {
         weapon_used[lastusedweapon] = 0
       }
@@ -1649,6 +1697,43 @@ const createMainWindow = () => {
   }
 
   const focuswindowIsGame = () => focuswindow == 'HELLDIVERS™ 2'
+
+  // 자동 장착(자동 선택): 로드아웃 화면에서 격자 탐색에 쓰는 게임 메뉴 기본키.
+  // (참조 HD2-Helper와 동일하게 WASD/Space/Z/C 고정 — 게임 메뉴 이동 기본 바인딩 가정)
+  const AUTOSELECT_KEYS = {
+    up: 'W', down: 'S', left: 'A', right: 'D',
+    tabPrev: 'Z', tabNext: 'C', select: 'SPACE',
+  }
+  let autoSelecting = false
+  const runAutoSelect = async () => {
+    if (autoSelecting) return
+    if (!focuswindowIsGame()) return
+    if (stratagemRunning || stratagemPending) return
+    const names = (stratagemsets || []).map(s => s && s.name).filter(Boolean)
+    if (!names.length) return
+    autoSelecting = true
+    dynamic_interval_stopper = true
+    try {
+      if (gameHWND) await windowFocus(gameHWND)
+      const tap = async (action) => {
+        const k = AUTOSELECT_KEYS[action]
+        if (!k) return
+        await TapKey(k, autoselect_input_delay)
+      }
+      await runStratagemAutoSelect({
+        selectedNames: names,
+        disabled: new Set(disabledItems),
+        tap,
+        sleep,
+        settleMs: 250,
+      })
+    } catch (e) {
+      console.error('자동선택 실패:', e)
+    } finally {
+      autoSelecting = false
+      dynamic_interval_stopper = false
+    }
+  }
   const findRedPixel = async buffer => {
     const countsmap = {}
     let maxCount = 0
@@ -2297,6 +2382,9 @@ const createMainWindow = () => {
         output_idx,
         displaylength,
         presets,
+        disabledItems,
+        autoselect_enabled,
+        autoselect_input_delay,
         keyBinds
       })
 
