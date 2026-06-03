@@ -4,15 +4,17 @@
     <div class="page" v-show="c_pagetype != 'modmanager'">
       <div class="console">
         <div class="categories">
-          <div class="category" v-for="(stratagems, category) in c_stratagems" :key="category">
-            <h2 class="title">{{ _categories[category][_i18n] }}</h2>
-            <div class="stratagems" :class="category">
-              <div class="stratagem" v-for="stratagem in stratagems" :key="stratagem.name"
-                @click="f_isSelected(stratagem) ? f_removestratagem(stratagem) : f_addstratagem(stratagem)"
-                :class="{ selected: f_isSelected(stratagem) }"
-              >
-                <img :src="stratagem.icon" alt="">
-                <!-- <span v-if="stratagem.code">{{ stratagem.code }} </span>{{ stratagem.name }} {{ stratagem.index }} -->
+          <div class="category-col" v-for="(col, ci) in _category_layout" :key="ci">
+            <div class="category" v-for="category in col" :key="category">
+              <h2 class="title">{{ _categories[category][_i18n] }}</h2>
+              <div class="stratagems" :class="category">
+                <div class="stratagem" v-for="stratagem in c_stratagems[category]" :key="stratagem.name"
+                  @click="f_isSelected(stratagem) ? f_removestratagem(stratagem) : f_addstratagem(stratagem)"
+                  :class="{ selected: f_isSelected(stratagem) }"
+                >
+                  <img :src="stratagem.icon" alt="">
+                  <!-- <span v-if="stratagem.code">{{ stratagem.code }} </span>{{ stratagem.name }} {{ stratagem.index }} -->
+                </div>
               </div>
             </div>
           </div>
@@ -839,6 +841,14 @@ const _categories = {
   }
 }
 
+// 카테고리 가로 배치: 같은 배열(열)에 든 카테고리는 세로로 쌓인다.
+// 임무(general)를 방어(defense) 밑으로 내려 4열 → 3열로 줄여 왼쪽 폭을 좁힌다.
+const _category_layout = [
+  ['attack'],
+  ['supply'],
+  ['defense', 'general']
+]
+
 
 const _stratagem_instant_fire = ref(true)
 watch(_stratagem_instant_fire, () => {
@@ -1345,6 +1355,64 @@ ipcRenderer.on('copy-game-invite-result', (result) => {
     _copy_result.value = null
   }, 10000)
 })
+
+
+/* ===== 창 크기 자동 맞춤 ===== */
+// 가로: 콘텐츠(.page) 실제 폭에 맞춤 → 좌우 빈 공간 제거.
+// 세로: 왼쪽 레이아웃(.console)의 자연 높이 기준 → 오른쪽이 더 길면 오른쪽 독립 스크롤이 처리.
+// 측정값은 창 크기와 무관(scrollHeight=콘텐츠 자연높이, .page=shrink-to-fit)하므로 피드백 루프가 없다.
+let _fitObserver = null
+let _fitScheduled = false
+let _lastFitW = 0
+let _lastFitH = 0
+// .console 의 "콘텐츠" 자연 높이를 측정한다.
+// scrollHeight 는 콘텐츠가 박스보다 작을 때 clientHeight(=박스 높이)와 같아져서
+// 창을 키우면 같이 커진다 → 그러면 최소크기가 부풀어 다시 못 줄인다.
+// 대신 자식 요소들의 실제 범위(top~bottom)를 재면 창 크기와 무관하게 안정적이다.
+const f_content_height = (el) => {
+  let top = Infinity, bottom = -Infinity
+  for (const kid of el.children) {
+    const r = kid.getBoundingClientRect()
+    if (!r.height) continue
+    if (r.top < top) top = r.top
+    if (r.bottom > bottom) bottom = r.bottom
+  }
+  return bottom > top ? (bottom - top) : el.scrollHeight
+}
+const f_fit_window = () => {
+  const pageEl = document.querySelector('._main > .page')
+  const consoleEl = document.querySelector('.console')
+  if (!pageEl || !consoleEl) return
+  const width = Math.ceil(pageEl.getBoundingClientRect().width) + 40        // ._main 좌우 패딩(20+20)
+  const height = Math.ceil(f_content_height(consoleEl)) + 140 + 8           // 타이틀바40 + 네비80 + ._main 하단패딩20 + 여유8
+  if (Math.abs(width - _lastFitW) <= 2 && Math.abs(height - _lastFitH) <= 2) return  // 떨림 방지
+  _lastFitW = width
+  _lastFitH = height
+  ipcRenderer.send('fit-window', { width, height })
+}
+const f_schedule_fit = () => {
+  if (_fitScheduled) return
+  _fitScheduled = true
+  requestAnimationFrame(() => {
+    _fitScheduled = false
+    f_fit_window()
+  })
+}
+// 콘텐츠 변경(프리셋/미션 슬롯/언어)으로 왼쪽 높이가 바뀌면 다시 측정
+watch([_presets, _mission_stratagems, _i18n], () => nextTick(f_schedule_fit), { deep: true })
+onMounted(() => {
+  nextTick(f_fit_window)
+  if (typeof ResizeObserver !== 'undefined') {
+    _fitObserver = new ResizeObserver(f_schedule_fit)
+    const pageEl = document.querySelector('._main > .page')
+    const consoleEl = document.querySelector('.console')
+    if (pageEl) _fitObserver.observe(pageEl)
+    if (consoleEl) _fitObserver.observe(consoleEl)
+  }
+})
+onBeforeUnmount(() => {
+  if (_fitObserver) { _fitObserver.disconnect(); _fitObserver = null }
+})
 </script>
 
 <style lang="scss" scoped>
@@ -1369,9 +1437,28 @@ ipcRenderer.on('copy-game-invite-result', (result) => {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: space-around;
+    justify-content: flex-start;
+    // 왼쪽 패널을 독립 스크롤 컨테이너로: 내용(카테고리+슬롯+프리셋)이 창 높이를
+    // 넘어도 프리셋 영역까지 스크롤로 도달 가능. (오른쪽 .settings .options 와 별도로 스크롤)
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 6px;
+    box-sizing: border-box;
+    &::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    &::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, .25);
+    }
     .categories {
       display: flex;
+      align-items: flex-start;
+      .category-col {
+        display: flex;
+        flex-direction: column;
+      }
       .category {
         margin: 10px;
         margin-top: 0;
@@ -1514,8 +1601,10 @@ ipcRenderer.on('copy-game-invite-result', (result) => {
   }
   .settings {
     position: relative;
-    width: 100%;
-    max-width: 900px;
+    // 내용(가장 넓은 .textbox 330px / .section 280px) 너비에 맞춰 자동 축소.
+    // 기존 width:100% + max-width:900px 는 1열일 때 내용보다 패널이 과하게 넓어짐.
+    width: fit-content;
+    flex: none;
     padding: 20px 0;
     box-sizing: border-box;
     margin-left: 20px;
@@ -1546,9 +1635,10 @@ ipcRenderer.on('copy-game-invite-result', (result) => {
       width: 100%;
       height: 100%;
       display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      align-items: flex-start;
+      flex-direction: column;
+      flex-wrap: nowrap;
+      justify-content: flex-start;
+      align-items: center;
       overflow-y: auto;
       &::-webkit-scrollbar {
         width: 6px;

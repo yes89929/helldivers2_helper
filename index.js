@@ -869,6 +869,29 @@ const createMainWindow = () => {
     savePresets()
   })
 
+  // 창 크기 자동 맞춤: 렌더러가 측정한 콘텐츠 크기로 창/최소크기를 조정한다.
+  // 가로는 콘텐츠 폭, 세로는 왼쪽 레이아웃(.console) 높이 기준이며, 현재 디스플레이
+  // 작업영역(workArea)을 넘지 않도록 제한한다. (초과분은 렌더러의 독립 스크롤이 처리)
+  let lastFitW = 0, lastFitH = 0
+  ipcMain.on('fit-window', (_, size) => {
+    try {
+      const win = windows.main
+      if (!win || win.isDestroyed()) return
+      let width = Math.round(size?.width || 0)
+      let height = Math.round(size?.height || 0)
+      if (!width || !height) return
+      const wa = screen.getDisplayMatching(win.getBounds()).workAreaSize
+      width = Math.max(800, Math.min(width, wa.width))
+      height = Math.max(400, Math.min(height, wa.height))
+      if (width === lastFitW && height === lastFitH) return
+      lastFitW = width; lastFitH = height
+      win.setMinimumSize(width, height)
+      win.setContentSize(width, height)
+    } catch (e) {
+      console.error('fit-window 실패:', e)
+    }
+  })
+
   ipcMain.on('open_config_path', (_, __) => {
     try {
       shell.openPath(configPath.replace('\\input_settings.config', ''))
