@@ -21,6 +21,12 @@ UI are primarily in **Korean** — match that language when editing existing fil
 | `npm run pack` | `nuxt generate && electron-builder --dir` → unpacked build. |
 | `npm run dist` | `nuxt generate && electron-builder` → NSIS installer into `package/`. |
 
+**Dev environment**: Node/npm are provided by a shared **miniforge named conda env `hd2-helper`**
+(Node 22, at `~/miniforge3/envs/hd2-helper`) — run `conda activate hd2-helper` before any `npm`
+command. The env is global to conda, so **every git worktree of this project shares it**; only
+`node_modules` is per-worktree (`npm install` once per checkout). A global Node install also works, but
+the env keeps the version pinned. Recreate with `conda create -n hd2-helper -c conda-forge nodejs=22 -y`.
+
 There are **no tests, no linter, and no formatter** configured — do not invent them. The `start`
 script references `electron-forge`, which is not installed; ignore it. npm scripts use Windows `cmd`
 `set VAR=` syntax.
