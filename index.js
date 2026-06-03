@@ -113,6 +113,17 @@ const saveKeySetting = () => {
 
 }
 
+// 스트라타젬 프리셋 저장소 (이름 배열만 저장, 적용 시 카탈로그에서 재구성)
+const presetsPath = path.join(userdatapath, 'user.settings.presets.json')
+let presets = []
+const savePresets = () => {
+  try {
+    fs.writeFileSync(presetsPath, JSON.stringify(presets))
+  } catch (e) {
+    console.error('프리셋 저장 실패:', e)
+  }
+}
+
 let instantfire = true
 ipcMain.on('instantfire', (_, value) => {
   instantfire = value
@@ -474,6 +485,14 @@ if (fs.existsSync(keysettingPath)) {
   if (keyBinds.autokey_sub) keyBinds['autokey_sub'] = keyBindsRead.autokey_sub
   if (keyBinds.autokey_sub2) keyBinds['autokey_sub2'] = keyBindsRead.autokey_sub2
   if (keyBinds.record) keyBinds['record'] = keyBindsRead.record
+}
+if (fs.existsSync(presetsPath)) {
+  try {
+    const presetsRead = JSON.parse(fs.readFileSync(presetsPath, 'utf8'))
+    if (Array.isArray(presetsRead)) presets = presetsRead
+  } catch (e) {
+    console.error('프리셋 로드 실패:', e)
+  }
 }
 
 let stratagemRunning = false
@@ -843,6 +862,11 @@ const createMainWindow = () => {
   ipcMain.on('stratagemsets', (_, array) => {
     stratagemsets = array
     windows.overlay.webContents.send('stratagemsets', stratagemsets)
+  })
+
+  ipcMain.on('presets', (_, array) => {
+    presets = Array.isArray(array) ? array : []
+    savePresets()
   })
 
   ipcMain.on('open_config_path', (_, __) => {
@@ -2249,6 +2273,7 @@ const createMainWindow = () => {
         deathcam_webp,
         output_idx,
         displaylength,
+        presets,
         keyBinds
       })
 
@@ -2285,15 +2310,19 @@ autoUpdater.on('update-downloaded', info => {
   windows.main.webContents.send('update-downloaded', info)
 })
 ipcMain.handle('check_update', async () => {
-  if (isDev) {
-    windows.main.webContents.send('update-not-available', { version: '0.0.0' })
-    return
-  }
-  autoUpdater.checkForUpdatesAndNotify(new Notification({
-    icon: path.join(app.getAppPath(), 'icon.png'),
-    title: 'Helldivers2 Helper', body: '새 업데이트가 있습니다!'
-  }))
+  // 자동 업데이트 비활성화: 이 빌드는 수정본이므로 업스트림 릴리스로 덮어쓰지 않도록
+  // 항상 "최신 버전"으로 응답한다. (다시 켜려면 아래 원본 로직 주석을 복원)
+  windows.main.webContents.send('update-not-available', { version: app.getVersion() })
   return
+  // if (isDev) {
+  //   windows.main.webContents.send('update-not-available', { version: '0.0.0' })
+  //   return
+  // }
+  // autoUpdater.checkForUpdatesAndNotify(new Notification({
+  //   icon: path.join(app.getAppPath(), 'icon.png'),
+  //   title: 'Helldivers2 Helper', body: '새 업데이트가 있습니다!'
+  // }))
+  // return
 })
 ipcMain.on('update_install', () => {
   if (updateready) {
@@ -2343,10 +2372,12 @@ app.whenReady().then(() => {
     return net.fetch('file://' + path.join(app.getAppPath(), req.url.slice('app://'.length)))
   })
   createMainWindow()
-  autoUpdater.checkForUpdatesAndNotify(new Notification({
-    icon: path.join(app.getAppPath(), 'icon.png'),
-    title: 'Helldivers2 Helper', body: '새 업데이트가 있습니다!'
-  }))
+  // 자동 업데이트 비활성화: 시작 시 업스트림 릴리스 확인을 하지 않는다.
+  // (다시 켜려면 아래 호출 주석을 복원)
+  // autoUpdater.checkForUpdatesAndNotify(new Notification({
+  //   icon: path.join(app.getAppPath(), 'icon.png'),
+  //   title: 'Helldivers2 Helper', body: '새 업데이트가 있습니다!'
+  // }))
 })
 app.on('window-all-closed', () => {
   if (updateready) {

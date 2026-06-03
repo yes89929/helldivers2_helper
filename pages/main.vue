@@ -44,6 +44,37 @@
             </div>
           </div>
         </div>
+        <div class="presets">
+          <div class="preset-head">
+            <h2 class="title">프리셋</h2>
+            <span class="hint">더블클릭: 이름변경 · 우클릭: 삭제 · 드래그: 순서변경</span>
+          </div>
+          <div class="preset-tabs">
+            <div class="preset-tab" v-for="preset in _presets" :key="preset.id"
+              :class="{ active: _selected_preset_id === preset.id }"
+              draggable="true"
+              @click="f_apply_preset(preset)"
+              @dblclick="f_preset_start_rename(preset)"
+              @contextmenu.prevent="f_delete_preset(preset)"
+              @dragstart="f_preset_dragstart(preset)"
+              @dragover.prevent="f_preset_dragover(preset)"
+              @dragend="f_preset_dragend"
+            >
+              <input v-if="_editing_preset_id === preset.id"
+                class="preset-rename"
+                v-model="_editing_preset_name"
+                :ref="el => el && el.focus()"
+                @click.stop
+                @keydown.enter="f_preset_confirm_rename(preset)"
+                @keydown.esc="f_preset_cancel_rename"
+                @blur="f_preset_confirm_rename(preset)"
+              >
+              <span v-else>{{ preset.name }}</span>
+            </div>
+            <div class="preset-tab add" @click="f_add_preset" title="현재 스트라타젬 구성으로 새 프리셋 만들기">＋</div>
+          </div>
+          <button v-if="_selected_preset_id" class="preset-save" @click="f_save_selected_preset">현재 구성을 프리셋에 저장</button>
+        </div>
       </div>
       <div class="settings">
         <div class="error" v-if="_steaminfo?.error">
@@ -678,6 +709,120 @@ const f_isSelected = stratagem => {
 }
 
 
+/* ===== 스트라타젬 프리셋 ===== */
+// 이름 -> 스트라타젬 객체 카탈로그 (프리셋은 이름만 저장하고 적용 시 여기서 재구성)
+const _stratagem_catalog = {}
+for (const key in _stratagems) {
+  for (const stratagem of _stratagems[key]) {
+    _stratagem_catalog[stratagem.name] = stratagem
+  }
+}
+
+const _presets = ref([])
+const _selected_preset_id = ref(null)
+const _editing_preset_id = ref(null)
+const _editing_preset_name = ref('')
+const _dragged_preset_id = ref(null)
+
+const f_save_presets = () => {
+  ipcRenderer.send('presets', JSON.parse(JSON.stringify(_presets.value)))
+}
+
+// 현재 슬롯/미션 구성을 이름 목록으로 캡처
+const f_capture_loadout = () => {
+  const slots = {}
+  for (let i = 1; i <= 6; i++) {
+    slots[i] = _stratagemsets.value[i]?.name || null
+  }
+  const missions = _mission_stratagems.value.map(s => s.name)
+  return { slots, missions }
+}
+
+// 프리셋 적용: 이름을 카탈로그에서 재구성하여 현재 구성에 반영 (기존 watch가 오버레이로 전파)
+const f_apply_preset = (preset) => {
+  const newSlots = {}
+  for (let i = 1; i <= 6; i++) {
+    const name = preset.slots?.[i]
+    newSlots[i] = name && _stratagem_catalog[name] ? _stratagem_catalog[name] : null
+  }
+  _stratagemsets.value = newSlots
+  _mission_stratagems.value = (preset.missions || [])
+    .map(name => _stratagem_catalog[name])
+    .filter(Boolean)
+  _selected_preset_id.value = preset.id
+}
+
+const f_get_next_preset_name = () => {
+  const names = new Set(_presets.value.map(p => p.name))
+  let n = 1
+  while (names.has(`프리셋 ${n}`)) n++
+  return `프리셋 ${n}`
+}
+
+const f_add_preset = () => {
+  const { slots, missions } = f_capture_loadout()
+  const preset = {
+    id: 'preset-' + Date.now(),
+    name: f_get_next_preset_name(),
+    slots,
+    missions
+  }
+  _presets.value.push(preset)
+  _selected_preset_id.value = preset.id
+  f_save_presets()
+}
+
+const f_save_selected_preset = () => {
+  const preset = _presets.value.find(p => p.id === _selected_preset_id.value)
+  if (!preset) return
+  const { slots, missions } = f_capture_loadout()
+  preset.slots = slots
+  preset.missions = missions
+  f_save_presets()
+}
+
+const f_delete_preset = (preset) => {
+  if (!confirm(`'${preset.name}' 프리셋을 삭제할까요?`)) return
+  _presets.value = _presets.value.filter(p => p.id !== preset.id)
+  if (_selected_preset_id.value === preset.id) _selected_preset_id.value = null
+  f_save_presets()
+}
+
+const f_preset_start_rename = (preset) => {
+  _editing_preset_id.value = preset.id
+  _editing_preset_name.value = preset.name
+}
+const f_preset_confirm_rename = (preset) => {
+  if (_editing_preset_id.value !== preset.id) return
+  const name = _editing_preset_name.value.trim()
+  if (name) {
+    preset.name = name
+    f_save_presets()
+  }
+  _editing_preset_id.value = null
+}
+const f_preset_cancel_rename = () => {
+  _editing_preset_id.value = null
+}
+
+const f_preset_dragstart = (preset) => {
+  _dragged_preset_id.value = preset.id
+}
+const f_preset_dragover = (preset) => {
+  const draggedId = _dragged_preset_id.value
+  if (!draggedId || draggedId === preset.id) return
+  const from = _presets.value.findIndex(p => p.id === draggedId)
+  const to = _presets.value.findIndex(p => p.id === preset.id)
+  if (from === -1 || to === -1) return
+  const [moved] = _presets.value.splice(from, 1)
+  _presets.value.splice(to, 0, moved)
+}
+const f_preset_dragend = () => {
+  if (_dragged_preset_id.value) f_save_presets()
+  _dragged_preset_id.value = null
+}
+
+
 const _i18n = ref('kor')
 const _categories = {
   attack: {
@@ -1071,6 +1216,7 @@ ipcRenderer.on('initSettings', v => {
   _deathcam_webp.value = v.deathcam_webp
   _output_idx.value = v.output_idx
   _displaylength.value = v.displaylength
+  if (Array.isArray(v.presets)) _presets.value = v.presets
   _bindkeys.value = v.keyBinds
 })
 
@@ -1289,6 +1435,79 @@ ipcRenderer.on('copy-game-invite-result', (result) => {
         margin-left: 20px;
         .hidden {
           opacity: .5;
+        }
+      }
+    }
+    .presets {
+      width: 100%;
+      margin-top: 16px;
+      box-sizing: border-box;
+      padding: 0 5px;
+      .preset-head {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        .title {
+          margin: 0;
+        }
+        .hint {
+          font-size: 11px;
+          opacity: .4;
+          font-weight: 300;
+        }
+      }
+      .preset-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+        .preset-tab {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 70px;
+          height: 32px;
+          padding: 0 12px;
+          box-sizing: border-box;
+          border: 2px solid rgba(255, 255, 255, .3);
+          background: rgba(0, 0, 0, .3);
+          cursor: pointer;
+          font-size: 13px;
+          user-select: none;
+          &.active {
+            border-color: rgb(255, 232, 0);
+            background: rgba(0, 0, 0, .8);
+          }
+          &.add {
+            min-width: 32px;
+            font-size: 18px;
+            opacity: .7;
+            &:hover {
+              opacity: 1;
+            }
+          }
+          .preset-rename {
+            width: 80px;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: white;
+            font-size: 13px;
+            text-align: center;
+          }
+        }
+      }
+      .preset-save {
+        margin-top: 8px;
+        height: 30px;
+        padding: 0 14px;
+        border: 2px solid rgba(255, 232, 0, .6);
+        background: rgba(0, 0, 0, .3);
+        color: white;
+        cursor: pointer;
+        font-size: 12px;
+        &:hover {
+          background: rgba(0, 0, 0, .8);
         }
       }
     }
