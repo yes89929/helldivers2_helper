@@ -59,16 +59,26 @@
         <div class="equipment">
           <h2 class="col-title">장비</h2>
           <div class="loadout">
-            <!-- 방어구: 상단 전체 폭 -->
-            <div class="equip-slot armor">
-              <h3 class="slot-title">방어구</h3>
-              <div class="slot-body"><span class="plus">＋</span></div>
+            <!-- 방어구: 상단 전체 폭. 클릭 → 선택 모달 -->
+            <div class="equip-slot armor" @click="f_open_equipment('armor')">
+              <h3 class="slot-title" :title="_equipment.armor ? `방어구: ${_equipment.armor.name}` : '방어구'">
+                방어구<span v-if="_equipment.armor" class="picked">: {{ _equipment.armor.name }}</span>
+              </h3>
+              <div class="slot-body">
+                <img v-if="_equipment.armor" :src="f_equip_image('armor', _equipment.armor.name)" :alt="_equipment.armor.name">
+                <span v-else class="plus">＋</span>
+              </div>
             </div>
-            <!-- 무기 3종: 1열로 나열 -->
+            <!-- 무기 3종: 1열로 나열. 각 슬롯 클릭 → 선택 모달 -->
             <div class="weapons">
-              <div class="equip-slot" v-for="w in _equipment_weapons" :key="w.key">
-                <h3 class="slot-title">{{ w.kor }}</h3>
-                <div class="slot-body"><span class="plus">＋</span></div>
+              <div class="equip-slot" v-for="w in _equipment_weapons" :key="w.key" @click="f_open_equipment(w.key)">
+                <h3 class="slot-title" :title="_equipment[w.key] ? `${w.kor}: ${_equipment[w.key].name}` : w.kor">
+                  {{ w.kor }}<span v-if="_equipment[w.key]" class="picked">: {{ _equipment[w.key].name }}</span>
+                </h3>
+                <div class="slot-body">
+                  <img v-if="_equipment[w.key]" :src="f_equip_image(w.key, _equipment[w.key].name)" :alt="_equipment[w.key].name">
+                  <span v-else class="plus">＋</span>
+                </div>
               </div>
             </div>
           </div>
@@ -552,6 +562,15 @@
 
     <div class="update" v-if="c_newversion" @click="f_update_install">최신 업데이트가 다운로드 되었습니다! 클릭하여 업데이트 하세요</div>
     <div class="update" v-else-if="_progress">신규 업데이트를 다운로드 받고 있습니다. {{ _progress?.percent?.toFixed(0) || 0 }}%</div>
+
+    <!-- 장비 선택 모달: 슬롯 클릭 시 해당 카테고리 카탈로그에서 고른다 -->
+    <MainEquipmentpicker
+      v-if="_equipment_modal"
+      :slot-key="_equipment_modal"
+      :selected="_equipment[_equipment_modal]"
+      @select="f_select_equipment"
+      @close="_equipment_modal = null"
+    />
   </div>
 </template>
 
@@ -812,7 +831,9 @@ const f_capture_loadout = () => {
     slots[i] = _stratagemsets.value[i]?.name || null
   }
   const missions = _mission_stratagems.value.map(s => s.name)
-  return { slots, missions }
+  const equipment = {}
+  for (const k of _equipment_keys) equipment[k] = _equipment.value[k]?.name || null
+  return { slots, missions, equipment }
 }
 
 // 프리셋 적용: 이름을 카탈로그에서 재구성하여 현재 구성에 반영 (기존 watch가 오버레이로 전파)
@@ -826,6 +847,13 @@ const f_apply_preset = (preset) => {
   _mission_stratagems.value = (preset.missions || [])
     .map(name => _stratagem_catalog[name])
     .filter(Boolean)
+  const eq = preset.equipment || {}
+  const newEquip = {}
+  for (const k of _equipment_keys) {
+    const name = eq[k]
+    newEquip[k] = name && _equipment_catalog[k]?.[name] ? _equipment_catalog[k][name] : null
+  }
+  _equipment.value = newEquip
   _selected_preset_id.value = preset.id
 }
 
@@ -837,24 +865,26 @@ const f_get_next_preset_name = () => {
 }
 
 const f_add_preset = () => {
-  const { slots, missions } = f_capture_loadout()
+  // 빈 프리셋으로 생성: 슬롯/미션/장비 모두 비어 있음. 생성 후 적용해 현재 화면도 비운다.
   const preset = {
     id: 'preset-' + Date.now(),
     name: f_get_next_preset_name(),
-    slots,
-    missions
+    slots: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null },
+    missions: [],
+    equipment: { armor: null, primary: null, secondary: null, throwable: null }
   }
   _presets.value.push(preset)
-  _selected_preset_id.value = preset.id
+  f_apply_preset(preset)
   f_save_presets()
 }
 
 const f_save_selected_preset = () => {
   const preset = _presets.value.find(p => p.id === _selected_preset_id.value)
   if (!preset) return
-  const { slots, missions } = f_capture_loadout()
+  const { slots, missions, equipment } = f_capture_loadout()
   preset.slots = slots
   preset.missions = missions
+  preset.equipment = equipment
   f_save_presets()
 }
 
@@ -923,13 +953,31 @@ const _category_layout = [
   ['supply']
 ]
 
-// 장비(로드아웃) 슬롯 — 현재는 GUI 배치만(자동 장착/카탈로그는 이후 연결).
-// 방어구는 상단 전체 폭, 무기 3종은 하단 2열 그리드. (.reference/HD2-Helper-main 참고)
+// 장비(로드아웃) 무기 슬롯. 방어구는 상단 전체 폭, 무기 3종은 그 아래 1열.
 const _equipment_weapons = [
   { key: 'primary', kor: '주 무기' },
   { key: 'secondary', kor: '보조 무기' },
   { key: 'throwable', kor: '투척 무기' }
 ]
+// 선택된 장비(로드아웃). 슬롯 클릭 → 모달(MainEquipmentpicker)로 선택.
+// 카탈로그/이미지는 utils/equipment.js + public/equipment/ (database.json 기반 생성).
+// 프리셋에 이름으로 저장/복원된다(f_capture_loadout / f_apply_preset).
+const _equipment = ref({ armor: null, primary: null, secondary: null, throwable: null })
+const _equipment_keys = ['armor', 'primary', 'secondary', 'throwable']
+// 이름 → 장비 아이템 역참조(프리셋 복원용). EQUIPMENT[slot] = [{ category, items: [{ name, ... }] }]
+const _equipment_catalog = {}
+for (const [slot, groups] of Object.entries(EQUIPMENT)) {
+  const map = {}
+  for (const g of groups) for (const it of g.items) map[it.name] = it
+  _equipment_catalog[slot] = map
+}
+const _equipment_modal = ref(null) // 열린 슬롯 key(armor/primary/secondary/throwable) 또는 null
+const f_open_equipment = (key) => { _equipment_modal.value = key }
+const f_select_equipment = (item) => {
+  if (_equipment_modal.value) _equipment.value[_equipment_modal.value] = item
+  _equipment_modal.value = null
+}
+const f_equip_image = (key, name) => `/equipment/${key === 'armor' ? 'armors' : 'weapons'}/${name}.png`
 
 
 const _stratagem_instant_fire = ref(true)
@@ -1773,13 +1821,22 @@ onBeforeUnmount(() => {
         font-size: 13px;
         font-weight: 400;
         background: rgba(0, 0, 0, .4);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        // 선택된 장비 이름 강조(카테고리는 흰색 유지)
+        .picked {
+          color: rgb(255, 232, 0);
+        }
       }
+      // 칸 높이는 칸이 결정하고, 이미지는 그 안에 맞춰 축소(이미지가 칸 높이를 늘리지 않게).
       .slot-body {
-        flex: 1;
+        height: 90px;          // 무기 슬롯: 고정 높이
         display: flex;
         align-items: center;
         justify-content: center;
-        min-height: 90px;
+        overflow: hidden;
+        min-height: 0;
         .plus {
           font-size: 30px;
           opacity: .4;
@@ -1787,14 +1844,18 @@ onBeforeUnmount(() => {
         img {
           max-width: 100%;
           max-height: 100%;
+          object-fit: contain;
         }
       }
       // 방어구는 남는 세로 공간을 채워, 투척무기 하단이 스트라타젬 2행 하단과 정렬되게 한다.
+      // slot-body 도 그 높이를 채우되 이미지는 칸 안에 맞춰 축소.
       &.armor {
         flex: 1;
-      }
-      &.armor .slot-body {
-        min-height: 120px;
+        .slot-body {
+          height: auto;
+          flex: 1;
+          min-height: 120px;
+        }
       }
     }
   }
