@@ -4,15 +4,17 @@
     <div class="page" v-show="c_pagetype != 'modmanager'">
       <div class="console">
         <div class="categories">
-          <div class="category" v-for="(stratagems, category) in c_stratagems" :key="category">
-            <h2 class="title">{{ _categories[category][_i18n] }}</h2>
-            <div class="stratagems" :class="category">
-              <div class="stratagem" v-for="stratagem in stratagems" :key="stratagem.name"
-                @click="f_isSelected(stratagem) ? f_removestratagem(stratagem) : f_addstratagem(stratagem)"
-                :class="{ selected: f_isSelected(stratagem) }"
-              >
-                <img :src="stratagem.icon" alt="">
-                <!-- <span v-if="stratagem.code">{{ stratagem.code }} </span>{{ stratagem.name }} {{ stratagem.index }} -->
+          <div class="category-col" v-for="(col, ci) in _category_layout" :key="ci">
+            <div class="category" v-for="category in col" :key="category">
+              <h2 class="title">{{ _categories[category][_i18n] }}</h2>
+              <div class="stratagems" :class="category">
+                <div class="stratagem" v-for="stratagem in c_stratagems[category]" :key="stratagem.name"
+                  @click="f_isSelected(stratagem) ? f_removestratagem(stratagem) : f_addstratagem(stratagem)"
+                  :class="{ selected: f_isSelected(stratagem) }"
+                >
+                  <img :src="stratagem.icon" alt="">
+                  <!-- <span v-if="stratagem.code">{{ stratagem.code }} </span>{{ stratagem.name }} {{ stratagem.index }} -->
+                </div>
               </div>
             </div>
           </div>
@@ -43,6 +45,37 @@
               <img :src="stratagem.icon" alt="">
             </div>
           </div>
+        </div>
+        <div class="presets">
+          <div class="preset-head">
+            <h2 class="title">프리셋</h2>
+            <span class="hint">더블클릭: 이름변경 · 우클릭: 삭제 · 드래그: 순서변경</span>
+          </div>
+          <div class="preset-tabs">
+            <div class="preset-tab" v-for="preset in _presets" :key="preset.id"
+              :class="{ active: _selected_preset_id === preset.id }"
+              draggable="true"
+              @click="f_apply_preset(preset)"
+              @dblclick="f_preset_start_rename(preset)"
+              @contextmenu.prevent="f_delete_preset(preset)"
+              @dragstart="f_preset_dragstart(preset)"
+              @dragover.prevent="f_preset_dragover(preset)"
+              @dragend="f_preset_dragend"
+            >
+              <input v-if="_editing_preset_id === preset.id"
+                class="preset-rename"
+                v-model="_editing_preset_name"
+                :ref="el => el && el.focus()"
+                @click.stop
+                @keydown.enter="f_preset_confirm_rename(preset)"
+                @keydown.esc="f_preset_cancel_rename"
+                @blur="f_preset_confirm_rename(preset)"
+              >
+              <span v-else>{{ preset.name }}</span>
+            </div>
+            <div class="preset-tab add" @click="f_add_preset" title="현재 스트라타젬 구성으로 새 프리셋 만들기">＋</div>
+          </div>
+          <button v-if="_selected_preset_id" class="preset-save" @click="f_save_selected_preset">현재 구성을 프리셋에 저장</button>
         </div>
       </div>
       <div class="settings">
@@ -678,6 +711,120 @@ const f_isSelected = stratagem => {
 }
 
 
+/* ===== 스트라타젬 프리셋 ===== */
+// 이름 -> 스트라타젬 객체 카탈로그 (프리셋은 이름만 저장하고 적용 시 여기서 재구성)
+const _stratagem_catalog = {}
+for (const key in _stratagems) {
+  for (const stratagem of _stratagems[key]) {
+    _stratagem_catalog[stratagem.name] = stratagem
+  }
+}
+
+const _presets = ref([])
+const _selected_preset_id = ref(null)
+const _editing_preset_id = ref(null)
+const _editing_preset_name = ref('')
+const _dragged_preset_id = ref(null)
+
+const f_save_presets = () => {
+  ipcRenderer.send('presets', JSON.parse(JSON.stringify(_presets.value)))
+}
+
+// 현재 슬롯/미션 구성을 이름 목록으로 캡처
+const f_capture_loadout = () => {
+  const slots = {}
+  for (let i = 1; i <= 6; i++) {
+    slots[i] = _stratagemsets.value[i]?.name || null
+  }
+  const missions = _mission_stratagems.value.map(s => s.name)
+  return { slots, missions }
+}
+
+// 프리셋 적용: 이름을 카탈로그에서 재구성하여 현재 구성에 반영 (기존 watch가 오버레이로 전파)
+const f_apply_preset = (preset) => {
+  const newSlots = {}
+  for (let i = 1; i <= 6; i++) {
+    const name = preset.slots?.[i]
+    newSlots[i] = name && _stratagem_catalog[name] ? _stratagem_catalog[name] : null
+  }
+  _stratagemsets.value = newSlots
+  _mission_stratagems.value = (preset.missions || [])
+    .map(name => _stratagem_catalog[name])
+    .filter(Boolean)
+  _selected_preset_id.value = preset.id
+}
+
+const f_get_next_preset_name = () => {
+  const names = new Set(_presets.value.map(p => p.name))
+  let n = 1
+  while (names.has(`프리셋 ${n}`)) n++
+  return `프리셋 ${n}`
+}
+
+const f_add_preset = () => {
+  const { slots, missions } = f_capture_loadout()
+  const preset = {
+    id: 'preset-' + Date.now(),
+    name: f_get_next_preset_name(),
+    slots,
+    missions
+  }
+  _presets.value.push(preset)
+  _selected_preset_id.value = preset.id
+  f_save_presets()
+}
+
+const f_save_selected_preset = () => {
+  const preset = _presets.value.find(p => p.id === _selected_preset_id.value)
+  if (!preset) return
+  const { slots, missions } = f_capture_loadout()
+  preset.slots = slots
+  preset.missions = missions
+  f_save_presets()
+}
+
+const f_delete_preset = (preset) => {
+  if (!confirm(`'${preset.name}' 프리셋을 삭제할까요?`)) return
+  _presets.value = _presets.value.filter(p => p.id !== preset.id)
+  if (_selected_preset_id.value === preset.id) _selected_preset_id.value = null
+  f_save_presets()
+}
+
+const f_preset_start_rename = (preset) => {
+  _editing_preset_id.value = preset.id
+  _editing_preset_name.value = preset.name
+}
+const f_preset_confirm_rename = (preset) => {
+  if (_editing_preset_id.value !== preset.id) return
+  const name = _editing_preset_name.value.trim()
+  if (name) {
+    preset.name = name
+    f_save_presets()
+  }
+  _editing_preset_id.value = null
+}
+const f_preset_cancel_rename = () => {
+  _editing_preset_id.value = null
+}
+
+const f_preset_dragstart = (preset) => {
+  _dragged_preset_id.value = preset.id
+}
+const f_preset_dragover = (preset) => {
+  const draggedId = _dragged_preset_id.value
+  if (!draggedId || draggedId === preset.id) return
+  const from = _presets.value.findIndex(p => p.id === draggedId)
+  const to = _presets.value.findIndex(p => p.id === preset.id)
+  if (from === -1 || to === -1) return
+  const [moved] = _presets.value.splice(from, 1)
+  _presets.value.splice(to, 0, moved)
+}
+const f_preset_dragend = () => {
+  if (_dragged_preset_id.value) f_save_presets()
+  _dragged_preset_id.value = null
+}
+
+
 const _i18n = ref('kor')
 const _categories = {
   attack: {
@@ -693,6 +840,14 @@ const _categories = {
     kor: '임무'
   }
 }
+
+// 카테고리 가로 배치: 같은 배열(열)에 든 카테고리는 세로로 쌓인다.
+// 임무(general)를 방어(defense) 밑으로 내려 4열 → 3열로 줄여 왼쪽 폭을 좁힌다.
+const _category_layout = [
+  ['attack'],
+  ['supply'],
+  ['defense', 'general']
+]
 
 
 const _stratagem_instant_fire = ref(true)
@@ -1071,6 +1226,7 @@ ipcRenderer.on('initSettings', v => {
   _deathcam_webp.value = v.deathcam_webp
   _output_idx.value = v.output_idx
   _displaylength.value = v.displaylength
+  if (Array.isArray(v.presets)) _presets.value = v.presets
   _bindkeys.value = v.keyBinds
 })
 
@@ -1199,6 +1355,64 @@ ipcRenderer.on('copy-game-invite-result', (result) => {
     _copy_result.value = null
   }, 10000)
 })
+
+
+/* ===== 창 크기 자동 맞춤 ===== */
+// 가로: 콘텐츠(.page) 실제 폭에 맞춤 → 좌우 빈 공간 제거.
+// 세로: 왼쪽 레이아웃(.console)의 자연 높이 기준 → 오른쪽이 더 길면 오른쪽 독립 스크롤이 처리.
+// 측정값은 창 크기와 무관(scrollHeight=콘텐츠 자연높이, .page=shrink-to-fit)하므로 피드백 루프가 없다.
+let _fitObserver = null
+let _fitScheduled = false
+let _lastFitW = 0
+let _lastFitH = 0
+// .console 의 "콘텐츠" 자연 높이를 측정한다.
+// scrollHeight 는 콘텐츠가 박스보다 작을 때 clientHeight(=박스 높이)와 같아져서
+// 창을 키우면 같이 커진다 → 그러면 최소크기가 부풀어 다시 못 줄인다.
+// 대신 자식 요소들의 실제 범위(top~bottom)를 재면 창 크기와 무관하게 안정적이다.
+const f_content_height = (el) => {
+  let top = Infinity, bottom = -Infinity
+  for (const kid of el.children) {
+    const r = kid.getBoundingClientRect()
+    if (!r.height) continue
+    if (r.top < top) top = r.top
+    if (r.bottom > bottom) bottom = r.bottom
+  }
+  return bottom > top ? (bottom - top) : el.scrollHeight
+}
+const f_fit_window = () => {
+  const pageEl = document.querySelector('._main > .page')
+  const consoleEl = document.querySelector('.console')
+  if (!pageEl || !consoleEl) return
+  const width = Math.ceil(pageEl.getBoundingClientRect().width) + 40        // ._main 좌우 패딩(20+20)
+  const height = Math.ceil(f_content_height(consoleEl)) + 140 + 8           // 타이틀바40 + 네비80 + ._main 하단패딩20 + 여유8
+  if (Math.abs(width - _lastFitW) <= 2 && Math.abs(height - _lastFitH) <= 2) return  // 떨림 방지
+  _lastFitW = width
+  _lastFitH = height
+  ipcRenderer.send('fit-window', { width, height })
+}
+const f_schedule_fit = () => {
+  if (_fitScheduled) return
+  _fitScheduled = true
+  requestAnimationFrame(() => {
+    _fitScheduled = false
+    f_fit_window()
+  })
+}
+// 콘텐츠 변경(프리셋/미션 슬롯/언어)으로 왼쪽 높이가 바뀌면 다시 측정
+watch([_presets, _mission_stratagems, _i18n], () => nextTick(f_schedule_fit), { deep: true })
+onMounted(() => {
+  nextTick(f_fit_window)
+  if (typeof ResizeObserver !== 'undefined') {
+    _fitObserver = new ResizeObserver(f_schedule_fit)
+    const pageEl = document.querySelector('._main > .page')
+    const consoleEl = document.querySelector('.console')
+    if (pageEl) _fitObserver.observe(pageEl)
+    if (consoleEl) _fitObserver.observe(consoleEl)
+  }
+})
+onBeforeUnmount(() => {
+  if (_fitObserver) { _fitObserver.disconnect(); _fitObserver = null }
+})
 </script>
 
 <style lang="scss" scoped>
@@ -1223,9 +1437,28 @@ ipcRenderer.on('copy-game-invite-result', (result) => {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: space-around;
+    justify-content: flex-start;
+    // 왼쪽 패널을 독립 스크롤 컨테이너로: 내용(카테고리+슬롯+프리셋)이 창 높이를
+    // 넘어도 프리셋 영역까지 스크롤로 도달 가능. (오른쪽 .settings .options 와 별도로 스크롤)
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 6px;
+    box-sizing: border-box;
+    &::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    &::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, .25);
+    }
     .categories {
       display: flex;
+      align-items: flex-start;
+      .category-col {
+        display: flex;
+        flex-direction: column;
+      }
       .category {
         margin: 10px;
         margin-top: 0;
@@ -1292,11 +1525,86 @@ ipcRenderer.on('copy-game-invite-result', (result) => {
         }
       }
     }
+    .presets {
+      width: 100%;
+      margin-top: 16px;
+      box-sizing: border-box;
+      padding: 0 5px;
+      .preset-head {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        .title {
+          margin: 0;
+        }
+        .hint {
+          font-size: 11px;
+          opacity: .4;
+          font-weight: 300;
+        }
+      }
+      .preset-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+        .preset-tab {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 70px;
+          height: 32px;
+          padding: 0 12px;
+          box-sizing: border-box;
+          border: 2px solid rgba(255, 255, 255, .3);
+          background: rgba(0, 0, 0, .3);
+          cursor: pointer;
+          font-size: 13px;
+          user-select: none;
+          &.active {
+            border-color: rgb(255, 232, 0);
+            background: rgba(0, 0, 0, .8);
+          }
+          &.add {
+            min-width: 32px;
+            font-size: 18px;
+            opacity: .7;
+            &:hover {
+              opacity: 1;
+            }
+          }
+          .preset-rename {
+            width: 80px;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: white;
+            font-size: 13px;
+            text-align: center;
+          }
+        }
+      }
+      .preset-save {
+        margin-top: 8px;
+        height: 30px;
+        padding: 0 14px;
+        border: 2px solid rgba(255, 232, 0, .6);
+        background: rgba(0, 0, 0, .3);
+        color: white;
+        cursor: pointer;
+        font-size: 12px;
+        &:hover {
+          background: rgba(0, 0, 0, .8);
+        }
+      }
+    }
   }
   .settings {
     position: relative;
-    width: 100%;
-    max-width: 900px;
+    // 내용(가장 넓은 .textbox 330px / .section 280px) 너비에 맞춰 자동 축소.
+    // 기존 width:100% + max-width:900px 는 1열일 때 내용보다 패널이 과하게 넓어짐.
+    width: fit-content;
+    flex: none;
     padding: 20px 0;
     box-sizing: border-box;
     margin-left: 20px;
@@ -1327,9 +1635,10 @@ ipcRenderer.on('copy-game-invite-result', (result) => {
       width: 100%;
       height: 100%;
       display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      align-items: flex-start;
+      flex-direction: column;
+      flex-wrap: nowrap;
+      justify-content: flex-start;
+      align-items: center;
       overflow-y: auto;
       &::-webkit-scrollbar {
         width: 6px;
