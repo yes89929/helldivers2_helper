@@ -10,7 +10,9 @@
               <div class="stratagems" :class="category">
                 <div class="stratagem" v-for="stratagem in c_stratagems[category]" :key="stratagem.name"
                   @click="f_isSelected(stratagem) ? f_removestratagem(stratagem) : f_addstratagem(stratagem)"
-                  :class="{ selected: f_isSelected(stratagem) }"
+                  @contextmenu.prevent="f_toggle_disabled(stratagem)"
+                  :class="{ selected: f_isSelected(stratagem), disabled: f_is_disabled(stratagem) }"
+                  :title="f_is_disabled(stratagem) ? '미보유(자동 장착 제외) — 우클릭으로 해제' : '우클릭: 미보유로 표시(자동 장착에서 제외)'"
                 >
                   <img :src="stratagem.icon" alt="">
                   <!-- <span v-if="stratagem.code">{{ stratagem.code }} </span>{{ stratagem.name }} {{ stratagem.index }} -->
@@ -133,6 +135,36 @@
                 <div class="name">로테이션 취소 단축키</div>
               </div>
               <div class="shortcut" @click="f_set_key('rotate_cancel', '로테이션 취소 단축키')">{{ f_get_key_string(_bindkeys.rotate_cancel) }}</div>
+            </div>
+          </div>
+          <div class="section">
+            <h3 class="title">스트라타젬 자동 장착</h3>
+            <div class="option">
+              <div class="meta">
+                <div class="deco"/>
+                <div class="name">자동 장착 사용</div>
+              </div>
+              <input type="checkbox" class="checkbox" v-model="_autoselect_enabled"/>
+            </div>
+            <div class="option">
+              <div class="meta">
+                <div class="deco"/>
+                <div class="name">자동 장착 단축키</div>
+              </div>
+              <div class="shortcut" @click="f_set_key('autoselect', '스트라타젬 자동 장착 단축키')">{{ f_get_key_string(_bindkeys.autoselect) || '미설정' }}</div>
+            </div>
+            <div class="option">
+              <div class="meta">
+                <div class="deco"/>
+                <div class="name">입력 딜레이 (ms, 30~100)</div>
+              </div>
+              <input class="input" type="number" min="30" max="100" v-model="_autoselect_input_delay"/>
+            </div>
+            <div class="option">
+              <div class="description" :style="{ width: '100%' }">
+                로드아웃(장비구성) 화면에서 스트라타젬 슬롯에 커서를 둔 뒤 단축키를 누르면 구성한 스트라타젬(앞 4개)을 자동 선택합니다.
+                <b>미보유 스트라타젬은 좌측 목록에서 우클릭해 제외</b>해야 정확히 동작하며, 게임 텍스트 언어는 한국어 기준입니다.
+              </div>
             </div>
           </div>
           <div class="section">
@@ -711,6 +743,18 @@ const f_isSelected = stratagem => {
 }
 
 
+/* ===== 미보유(자동 장착 제외) 스트라타젬 ===== */
+// 인게임 격자에서 미보유 항목을 빼야 좌표가 일치하므로, 우클릭으로 제외 목록을 관리한다.
+const _disabled_items = ref([])
+const f_is_disabled = (stratagem) => !!stratagem && _disabled_items.value.includes(stratagem.name)
+const f_toggle_disabled = (stratagem) => {
+  if (!stratagem) return
+  const i = _disabled_items.value.indexOf(stratagem.name)
+  if (i === -1) _disabled_items.value.push(stratagem.name)
+  else _disabled_items.value.splice(i, 1)
+  ipcRenderer.send('disabled_items', JSON.parse(JSON.stringify(_disabled_items.value)))
+}
+
 /* ===== 스트라타젬 프리셋 ===== */
 // 이름 -> 스트라타젬 객체 카탈로그 (프리셋은 이름만 저장하고 적용 시 여기서 재구성)
 const _stratagem_catalog = {}
@@ -905,6 +949,20 @@ watch(_cinematic_mode, () => {
 })
 ipcRenderer.on('cinematic_mode', v => {
   _cinematic_mode.value = v
+})
+const _autoselect_enabled = ref(true)
+watch(_autoselect_enabled, () => {
+  ipcRenderer.send('autoselect_enabled', _autoselect_enabled.value)
+})
+ipcRenderer.on('autoselect_enabled', v => {
+  _autoselect_enabled.value = v
+})
+const _autoselect_input_delay = ref(30)
+watch(_autoselect_input_delay, () => {
+  ipcRenderer.send('autoselect_input_delay', parseInt(_autoselect_input_delay.value || 30) || 30)
+})
+ipcRenderer.on('autoselect_input_delay', v => {
+  _autoselect_input_delay.value = v
 })
 
 const _autokey_enabled = ref(false)
@@ -1186,6 +1244,7 @@ const _bindkeys = ref({
   autokey_sub: 'XBUTTON2',
   autokey_sub2: 'MBUTTON',
   record: 'F1',
+  autoselect: null,
 })
 
 ipcRenderer.on('initSettings', v => {
@@ -1227,6 +1286,9 @@ ipcRenderer.on('initSettings', v => {
   _output_idx.value = v.output_idx
   _displaylength.value = v.displaylength
   if (Array.isArray(v.presets)) _presets.value = v.presets
+  if (Array.isArray(v.disabledItems)) _disabled_items.value = v.disabledItems
+  if (v.autoselect_enabled !== undefined) _autoselect_enabled.value = v.autoselect_enabled
+  if (v.autoselect_input_delay !== undefined) _autoselect_input_delay.value = v.autoselect_input_delay
   _bindkeys.value = v.keyBinds
 })
 
@@ -1483,6 +1545,14 @@ onBeforeUnmount(() => {
             &.selected {
               border-color: rgb(255, 232, 0);
               background: rgba(0, 0, 0, .8);
+            }
+            &.disabled {
+              border-style: dashed;
+              border-color: rgba(255, 80, 80, .6);
+              img {
+                opacity: .25;
+                filter: grayscale(1);
+              }
             }
           }
           &.supply {

@@ -589,6 +589,15 @@ export const KeyPressAndRelease = async (key, ms = 5, HWND) => {
   await KeyRelease(key)
 }
 
+// 메뉴 격자 탐색용 단발 탭: 누르고 ms 대기 후 떼고 다시 ms 대기.
+// (참조 HD2-Helper의 TapKey와 동일 — 게임이 개별 탭으로 인식하도록 입력 사이 간격 보장)
+export const TapKey = async (key, ms = 30) => {
+  await KeyPress(key)
+  await sleep(ms)
+  await KeyRelease(key)
+  await sleep(ms)
+}
+
 const handlers = {}
 export const keyboard = {
   status: {},
