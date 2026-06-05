@@ -1,53 +1,89 @@
 <template>
-  <div class="_main">
+  <div class="_main" :class="{ navless: c_pagetype != 'modmanager' }">
     <MainModmanager v-show="c_pagetype == 'modmanager'"/>
     <div class="page" v-show="c_pagetype != 'modmanager'">
-      <div class="console">
-        <div class="categories">
-          <div class="category-col" v-for="(col, ci) in _category_layout" :key="ci">
-            <div class="category" v-for="category in col" :key="category">
-              <h2 class="title">{{ _categories[category][_i18n] }}</h2>
-              <div class="stratagems" :class="category">
-                <div class="stratagem" v-for="stratagem in c_stratagems[category]" :key="stratagem.name"
-                  @click="f_isSelected(stratagem) ? f_removestratagem(stratagem) : f_addstratagem(stratagem)"
-                  @contextmenu.prevent="f_toggle_disabled(stratagem)"
-                  :class="{ selected: f_isSelected(stratagem), disabled: f_is_disabled(stratagem) }"
-                  :title="f_is_disabled(stratagem) ? '미보유(자동 장착 제외) — 우클릭으로 해제' : '우클릭: 미보유로 표시(자동 장착에서 제외)'"
+      <div class="loadout-area">
+        <div class="console">
+          <h2 class="col-title">스트라타젬</h2>
+          <div class="categories">
+            <div class="category-col" v-for="(col, ci) in _category_layout" :key="ci">
+              <div class="category" v-for="category in col" :key="category">
+                <h2 class="title">{{ _categories[category][_i18n] }}</h2>
+                <div class="stratagems" :class="category">
+                  <div class="stratagem" v-for="stratagem in c_stratagems[category]" :key="stratagem.name"
+                    @click="f_isSelected(stratagem) ? f_removestratagem(stratagem) : f_addstratagem(stratagem)"
+                    @contextmenu.prevent="f_toggle_disabled(stratagem)"
+                    :class="{ selected: f_isSelected(stratagem), disabled: f_is_disabled(stratagem) }"
+                    :title="f_is_disabled(stratagem) ? '미보유(자동 장착 제외) — 우클릭으로 해제' : '우클릭: 미보유로 표시(자동 장착에서 제외)'"
+                  >
+                    <img :src="stratagem.icon" alt="">
+                    <!-- <span v-if="stratagem.code">{{ stratagem.code }} </span>{{ stratagem.name }} {{ stratagem.index }} -->
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="stratagemsets">
+            <!-- 1행: 공격/보급/방어에서 선택한 스트라타젬 (6 슬롯) -->
+            <div class="set-row main">
+              <div class="stratagem" v-for="i in 6" :key="i"
+                @click="f_removestratagem(_stratagemsets[i])"
+                :class="{ selected: _stratagemsets[i] }"
+              >
+                <img :src="_stratagemsets[i]?.icon" alt="">
+              </div>
+            </div>
+            <!-- 2행: 임무(mission) / 기타(default) — 윗 행과 동일한 6열 그리드 -->
+            <div class="set-row sub">
+              <!-- 임무 슬롯: 미선택이어도 빈칸 표시(윗 행 6칸과 위치/너비/간격 일치) -->
+              <div class="mission">
+                <div class="stratagem" v-for="i in c_mission_slot_count" :key="i"
+                  :class="{ selected: _mission_stratagems[i - 1] }"
+                  @click="_mission_stratagems[i - 1] && f_removestratagem(_mission_stratagems[i - 1])"
+                >
+                  <img :src="_mission_stratagems[i - 1]?.icon" alt="">
+                </div>
+              </div>
+              <!-- 기타(기본 보급): 가장 오른쪽 2칸 고정 -->
+              <div class="default">
+                <div class="stratagem" v-for="(stratagem, index) in _default_stratagems" :key="stratagem.name"
+                  @click="_default_stratagems_hidden[index] = _default_stratagems_hidden[index] ? false : true"
+                  :class="{ hidden: _default_stratagems_hidden[index] }"
                 >
                   <img :src="stratagem.icon" alt="">
-                  <!-- <span v-if="stratagem.code">{{ stratagem.code }} </span>{{ stratagem.name }} {{ stratagem.index }} -->
                 </div>
               </div>
             </div>
           </div>
         </div>
-        <div class="stratagemsets">
-          <div class="stratagem" v-for="i in 6" :key="i"
-            @click="f_removestratagem(_stratagemsets[i])"
-            :class="{ selected: _stratagemsets[i] }"
-          >
-            <img :src="_stratagemsets[i]?.icon" alt="">
-            <!-- <div class="name">
-              <div v-if="_stratagemsets[i]?.code">{{ _stratagemsets[i]?.code }}</div>
-              <div>{{ _stratagemsets[i]?.name }}</div>
-            </div> -->
-          </div>
-          <div class="mission" v-if="_mission_stratagems.length > 0">
-            <div class="stratagem" v-for="(stratagem, index) in _mission_stratagems" :key="stratagem.name"
-              @click="f_removestratagem(_mission_stratagems[index])"
-            >
-              <img :src="stratagem.icon" alt="">
+        <div class="equipment">
+          <h2 class="col-title">장비</h2>
+          <div class="loadout">
+            <!-- 방어구: 상단 전체 폭. 클릭 → 선택 모달 -->
+            <div class="equip-slot armor" @click="f_open_equipment('armor')">
+              <h3 class="slot-title" :title="_equipment.armor ? `방어구: ${_equipment.armor.name}` : '방어구'">
+                방어구<span v-if="_equipment.armor" class="picked">: {{ _equipment.armor.name }}</span>
+              </h3>
+              <div class="slot-body">
+                <img v-if="_equipment.armor" :src="f_equip_image('armor', _equipment.armor.name)" :alt="_equipment.armor.name">
+                <span v-else class="plus">＋</span>
+              </div>
             </div>
-          </div>
-          <div class="default">
-            <div class="stratagem" v-for="(stratagem, index) in _default_stratagems" :key="stratagem.name"
-              @click="_default_stratagems_hidden[index] = _default_stratagems_hidden[index] ? false : true"
-              :class="{ hidden: _default_stratagems_hidden[index] }"
-            >
-              <img :src="stratagem.icon" alt="">
+            <!-- 무기 3종: 1열로 나열. 각 슬롯 클릭 → 선택 모달 -->
+            <div class="weapons">
+              <div class="equip-slot" v-for="w in _equipment_weapons" :key="w.key" @click="f_open_equipment(w.key)">
+                <h3 class="slot-title" :title="_equipment[w.key] ? `${w.kor}: ${_equipment[w.key].name}` : w.kor">
+                  {{ w.kor }}<span v-if="_equipment[w.key]" class="picked">: {{ _equipment[w.key].name }}</span>
+                </h3>
+                <div class="slot-body">
+                  <img v-if="_equipment[w.key]" :src="f_equip_image(w.key, _equipment[w.key].name)" :alt="_equipment[w.key].name">
+                  <span v-else class="plus">＋</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
+        <!-- 프리셋: 스트라타젬+장비 두 열을 가로질러 배치(장비도 저장 예정) -->
         <div class="presets">
           <div class="preset-head">
             <h2 class="title">프리셋</h2>
@@ -77,10 +113,12 @@
             </div>
             <div class="preset-tab add" @click="f_add_preset" title="현재 스트라타젬 구성으로 새 프리셋 만들기">＋</div>
           </div>
-          <button v-if="_selected_preset_id" class="preset-save" @click="f_save_selected_preset">현재 구성을 프리셋에 저장</button>
+          <!-- 항상 표시(높이 고정). 선택된 프리셋이 없으면 비활성만. -->
+          <button class="preset-save" :disabled="!_selected_preset_id" @click="f_save_selected_preset">현재 구성을 프리셋에 저장</button>
         </div>
       </div>
       <div class="settings">
+        <h2 class="col-title">설정</h2>
         <div class="error" v-if="_steaminfo?.error">
           스팀의 게임 또는 계정 정보를 불러오는데 실패했습니다. 스팀 로그인을 확인하세요.
         </div>
@@ -524,6 +562,17 @@
 
     <div class="update" v-if="c_newversion" @click="f_update_install">최신 업데이트가 다운로드 되었습니다! 클릭하여 업데이트 하세요</div>
     <div class="update" v-else-if="_progress">신규 업데이트를 다운로드 받고 있습니다. {{ _progress?.percent?.toFixed(0) || 0 }}%</div>
+
+    <!-- 장비 선택 모달: 슬롯 클릭 시 해당 카테고리 카탈로그에서 고른다 -->
+    <MainEquipmentpicker
+      v-if="_equipment_modal"
+      :slot-key="_equipment_modal"
+      :selected="_equipment[_equipment_modal]"
+      :disabled-names="_disabled_items"
+      @select="f_select_equipment"
+      @toggle-disabled="f_toggle_disabled"
+      @close="_equipment_modal = null"
+    />
   </div>
 </template>
 
@@ -646,6 +695,9 @@ const _default_stratagems = ref([
     takedown: 1000 * 15
   }
 ])
+// 선택 표시 2행을 윗 행(6칸)과 동일하게: 임무 슬롯 수 = 6 - 기타(고정 보급) 개수.
+// 임무가 비어 있어도 이 개수만큼 빈칸을 그려 위치/너비/간격을 윗 행과 맞춘다.
+const c_mission_slot_count = computed(() => Math.max(0, 6 - _default_stratagems.value.length))
 
 const _stratagems = STRATAGEMS
 const c_stratagems = computed(() => {
@@ -781,7 +833,9 @@ const f_capture_loadout = () => {
     slots[i] = _stratagemsets.value[i]?.name || null
   }
   const missions = _mission_stratagems.value.map(s => s.name)
-  return { slots, missions }
+  const equipment = {}
+  for (const k of _equipment_keys) equipment[k] = _equipment.value[k]?.name || null
+  return { slots, missions, equipment }
 }
 
 // 프리셋 적용: 이름을 카탈로그에서 재구성하여 현재 구성에 반영 (기존 watch가 오버레이로 전파)
@@ -795,6 +849,13 @@ const f_apply_preset = (preset) => {
   _mission_stratagems.value = (preset.missions || [])
     .map(name => _stratagem_catalog[name])
     .filter(Boolean)
+  const eq = preset.equipment || {}
+  const newEquip = {}
+  for (const k of _equipment_keys) {
+    const name = eq[k]
+    newEquip[k] = name && _equipment_catalog[k]?.[name] ? _equipment_catalog[k][name] : null
+  }
+  _equipment.value = newEquip
   _selected_preset_id.value = preset.id
 }
 
@@ -806,24 +867,26 @@ const f_get_next_preset_name = () => {
 }
 
 const f_add_preset = () => {
-  const { slots, missions } = f_capture_loadout()
+  // 빈 프리셋으로 생성: 슬롯/미션/장비 모두 비어 있음. 생성 후 적용해 현재 화면도 비운다.
   const preset = {
     id: 'preset-' + Date.now(),
     name: f_get_next_preset_name(),
-    slots,
-    missions
+    slots: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null },
+    missions: [],
+    equipment: { armor: null, primary: null, secondary: null, throwable: null }
   }
   _presets.value.push(preset)
-  _selected_preset_id.value = preset.id
+  f_apply_preset(preset)
   f_save_presets()
 }
 
 const f_save_selected_preset = () => {
   const preset = _presets.value.find(p => p.id === _selected_preset_id.value)
   if (!preset) return
-  const { slots, missions } = f_capture_loadout()
+  const { slots, missions, equipment } = f_capture_loadout()
   preset.slots = slots
   preset.missions = missions
+  preset.equipment = equipment
   f_save_presets()
 }
 
@@ -886,12 +949,43 @@ const _categories = {
 }
 
 // 카테고리 가로 배치: 같은 배열(열)에 든 카테고리는 세로로 쌓인다.
-// 임무(general)를 방어(defense) 밑으로 내려 4열 → 3열로 줄여 왼쪽 폭을 좁힌다.
+// 장비 열을 추가하면서 스트라타젬을 2열로 압축: 1열=공격/방어/임무(세로로 쌓음), 2열=보급.
 const _category_layout = [
-  ['attack'],
-  ['supply'],
-  ['defense', 'general']
+  ['attack', 'defense', 'general'],
+  ['supply']
 ]
+
+// 장비(로드아웃) 무기 슬롯. 방어구는 상단 전체 폭, 무기 3종은 그 아래 1열.
+const _equipment_weapons = [
+  { key: 'primary', kor: '주 무기' },
+  { key: 'secondary', kor: '보조 무기' },
+  { key: 'throwable', kor: '투척 무기' }
+]
+// 선택된 장비(로드아웃). 슬롯 클릭 → 모달(MainEquipmentpicker)로 선택.
+// 카탈로그/이미지는 utils/equipment.js + public/equipment/ (database.json 기반 생성).
+// 프리셋에 이름으로 저장/복원된다(f_capture_loadout / f_apply_preset).
+const _equipment = ref({ armor: null, primary: null, secondary: null, throwable: null })
+const _equipment_keys = ['armor', 'primary', 'secondary', 'throwable']
+// 이름 → 장비 아이템 역참조(프리셋 복원용). EQUIPMENT[slot] = [{ category, items: [{ name, ... }] }]
+const _equipment_catalog = {}
+for (const [slot, groups] of Object.entries(EQUIPMENT)) {
+  const map = {}
+  for (const g of groups) for (const it of g.items) map[it.name] = it
+  _equipment_catalog[slot] = map
+}
+const _equipment_modal = ref(null) // 열린 슬롯 key(armor/primary/secondary/throwable) 또는 null
+const f_open_equipment = (key) => { _equipment_modal.value = key }
+const f_select_equipment = (item) => {
+  if (_equipment_modal.value) _equipment.value[_equipment_modal.value] = item
+  _equipment_modal.value = null
+}
+const f_equip_image = (key, name) => `/equipment/${key === 'armor' ? 'armors' : 'weapons'}/${name}.png`
+// 현재 장비 로드아웃을 메인 프로세스로 전달(인게임 장비 자동 장착이 소비). 이름 또는 null.
+watch(_equipment, () => {
+  const eq = {}
+  for (const k of _equipment_keys) eq[k] = _equipment.value[k]?.name || null
+  ipcRenderer.send('equipmentsets', eq)
+}, { deep: true })
 
 
 const _stratagem_instant_fire = ref(true)
@@ -1443,10 +1537,10 @@ const f_content_height = (el) => {
 }
 const f_fit_window = () => {
   const pageEl = document.querySelector('._main > .page')
-  const consoleEl = document.querySelector('.console')
-  if (!pageEl || !consoleEl) return
+  const leftEl = document.querySelector('.loadout-area')
+  if (!pageEl || !leftEl) return
   const width = Math.ceil(pageEl.getBoundingClientRect().width) + 40        // ._main 좌우 패딩(20+20)
-  const height = Math.ceil(f_content_height(consoleEl)) + 140 + 8           // 타이틀바40 + 네비80 + ._main 하단패딩20 + 여유8
+  const height = Math.ceil(f_content_height(leftEl)) + 60 + 8               // 타이틀바40 + ._main 하단패딩20 + 여유8 (상단 네비 헤더 제거됨)
   if (Math.abs(width - _lastFitW) <= 2 && Math.abs(height - _lastFitH) <= 2) return  // 떨림 방지
   _lastFitW = width
   _lastFitH = height
@@ -1467,9 +1561,9 @@ onMounted(() => {
   if (typeof ResizeObserver !== 'undefined') {
     _fitObserver = new ResizeObserver(f_schedule_fit)
     const pageEl = document.querySelector('._main > .page')
-    const consoleEl = document.querySelector('.console')
+    const leftEl = document.querySelector('.loadout-area')
     if (pageEl) _fitObserver.observe(pageEl)
-    if (consoleEl) _fitObserver.observe(consoleEl)
+    if (leftEl) _fitObserver.observe(leftEl)
   }
 })
 onBeforeUnmount(() => {
@@ -1483,6 +1577,10 @@ onBeforeUnmount(() => {
   color: white;
   display: flex;
   height: calc(100% - 80px);
+  &.navless {
+    // 상단 네비(전투 보조 헤더) 제거 시 네비 높이(80px) 차감 불필요.
+    height: 100%;
+  }
   padding: 20px;
   padding-top: 0;
   justify-content: space-around;
@@ -1490,6 +1588,23 @@ onBeforeUnmount(() => {
   .page {
     display: flex;
     justify-content: space-around;
+  }
+  // 스트라타젬(console) + 장비(equipment)를 2열로, 프리셋은 두 열을 가로질러(2행) 배치.
+  .loadout-area {
+    display: grid;
+    grid-template-columns: auto auto;
+    column-gap: 20px;
+    // 그리드를 콘텐츠 높이로 고정: 부모(._main) 높이만큼 늘어나며 행이 과도하게
+    // stretch되어 방어구가 끝없이 커지는 것을 방지.
+    align-self: flex-start;
+    // align-items 기본값(stretch): console·equipment가 같은 행(=스트라타젬 콘텐츠) 높이로
+    // 늘어나, 장비 열 방어구가 그만큼만 커지며 투척무기 하단이 스트라타젬 2행 하단과 정렬된다.
+  }
+  // 각 열(스트라타젬/장비/설정) 상단 제목 — 제거한 상단 헤더와 동일한 28px.
+  .col-title {
+    align-self: flex-start;
+    font-size: 28px;
+    margin: 0 0 10px;
   }
   img {
     -webkit-user-drag: none;
@@ -1500,23 +1615,23 @@ onBeforeUnmount(() => {
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
-    // 왼쪽 패널을 독립 스크롤 컨테이너로: 내용(카테고리+슬롯+프리셋)이 창 높이를
-    // 넘어도 프리셋 영역까지 스크롤로 도달 가능. (오른쪽 .settings .options 와 별도로 스크롤)
-    min-height: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
-    padding-right: 6px;
+    min-width: 0;
     box-sizing: border-box;
-    &::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
-    &::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, .25);
-    }
     .categories {
       display: flex;
       align-items: flex-start;
+      // 스트라타젬 목록은 약 1/2 높이로 제한 + 내부 스크롤(창이 과하게 길어지는 것 방지).
+      max-height: 510px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 6px;
+      &::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      &::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, .25);
+      }
       .category-col {
         display: flex;
         flex-direction: column;
@@ -1555,14 +1670,21 @@ onBeforeUnmount(() => {
               }
             }
           }
-          &.supply {
-            width: 420px;
-          }
+          // 보급(supply)도 기본 폭(280px=4열) 사용. 장비 열 추가로 6열 → 4열로 축소.
         }
       }
     }
     .stratagemsets {
       display: flex;
+      flex-direction: column;
+      .set-row {
+        display: flex;
+      }
+      // 2행(임무/기타)도 1행과 동일한 6열 그리드로 정렬: 그룹 간 추가 간격 없이
+      // 슬롯 margin(5px)만으로 윗 행과 열 간격·위치를 맞춘다.
+      .set-row.sub {
+        margin-top: 4px;
+      }
       .stratagem {
         display: flex;
         align-items: center;
@@ -1584,87 +1706,163 @@ onBeforeUnmount(() => {
         }
       }
       .mission {
-        margin-left: 20px;
         display: flex;
       }
       .default {
         display: flex;
-        margin-left: 20px;
         .hidden {
           opacity: .5;
         }
       }
     }
-    .presets {
-      width: 100%;
-      margin-top: 16px;
-      box-sizing: border-box;
-      padding: 0 5px;
-      .preset-head {
-        display: flex;
-        align-items: baseline;
-        gap: 10px;
-        .title {
-          margin: 0;
-        }
-        .hint {
-          font-size: 11px;
-          opacity: .4;
-          font-weight: 300;
-        }
+  }
+  // 프리셋: console(스트라타젬)와 equipment(장비) 두 열을 가로질러 배치. (장비도 저장 예정)
+  .presets {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin-top: 16px;
+    box-sizing: border-box;
+    padding: 0 5px;
+    .preset-head {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      .title {
+        margin: 0;
       }
-      .preset-tabs {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 8px;
-        .preset-tab {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          min-width: 70px;
-          height: 32px;
-          padding: 0 12px;
-          box-sizing: border-box;
-          border: 2px solid rgba(255, 255, 255, .3);
-          background: rgba(0, 0, 0, .3);
-          cursor: pointer;
-          font-size: 13px;
-          user-select: none;
-          &.active {
-            border-color: rgb(255, 232, 0);
-            background: rgba(0, 0, 0, .8);
-          }
-          &.add {
-            min-width: 32px;
-            font-size: 18px;
-            opacity: .7;
-            &:hover {
-              opacity: 1;
-            }
-          }
-          .preset-rename {
-            width: 80px;
-            background: transparent;
-            border: none;
-            outline: none;
-            color: white;
-            font-size: 13px;
-            text-align: center;
-          }
-        }
+      .hint {
+        font-size: 11px;
+        opacity: .4;
+        font-weight: 300;
       }
-      .preset-save {
-        margin-top: 8px;
-        height: 30px;
-        padding: 0 14px;
-        border: 2px solid rgba(255, 232, 0, .6);
+    }
+    .preset-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+      .preset-tab {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 70px;
+        height: 32px;
+        padding: 0 12px;
+        box-sizing: border-box;
+        border: 2px solid rgba(255, 255, 255, .3);
         background: rgba(0, 0, 0, .3);
-        color: white;
         cursor: pointer;
-        font-size: 12px;
-        &:hover {
+        font-size: 13px;
+        user-select: none;
+        &.active {
+          border-color: rgb(255, 232, 0);
           background: rgba(0, 0, 0, .8);
+        }
+        &.add {
+          min-width: 32px;
+          font-size: 18px;
+          opacity: .7;
+          &:hover {
+            opacity: 1;
+          }
+        }
+        .preset-rename {
+          width: 80px;
+          background: transparent;
+          border: none;
+          outline: none;
+          color: white;
+          font-size: 13px;
+          text-align: center;
+        }
+      }
+    }
+    .preset-save {
+      margin-top: 8px;
+      height: 30px;
+      padding: 0 14px;
+      border: 2px solid rgba(255, 232, 0, .6);
+      background: rgba(0, 0, 0, .3);
+      color: white;
+      cursor: pointer;
+      font-size: 12px;
+      &:not(:disabled):hover {
+        background: rgba(0, 0, 0, .8);
+      }
+      &:disabled {
+        border-color: rgba(255, 255, 255, .2);
+        color: rgba(255, 255, 255, .35);
+        cursor: default;
+      }
+    }
+  }
+  .equipment {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    .loadout {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 270px;
+      // 장비 열이 행 높이만큼 늘어난 만큼 로드아웃도 채운다(방어구 stretch용).
+      flex: 1;
+    }
+    .weapons {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .equip-slot {
+      box-sizing: border-box;
+      border: 3px solid rgba(255, 255, 255, .3);
+      background: rgba(0, 0, 0, .3);
+      display: flex;
+      flex-direction: column;
+      cursor: pointer;
+      &:hover {
+        border-color: rgba(255, 232, 0, .6);
+      }
+      .slot-title {
+        margin: 0;
+        padding: 5px 8px;
+        font-size: 13px;
+        font-weight: 400;
+        background: rgba(0, 0, 0, .4);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        // 선택된 장비 이름 강조(카테고리는 흰색 유지)
+        .picked {
+          color: rgb(255, 232, 0);
+        }
+      }
+      // 칸 높이는 칸이 결정하고, 이미지는 그 안에 맞춰 축소(이미지가 칸 높이를 늘리지 않게).
+      .slot-body {
+        height: 90px;          // 무기 슬롯: 고정 높이
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        min-height: 0;
+        .plus {
+          font-size: 30px;
+          opacity: .4;
+        }
+        img {
+          max-width: 100%;
+          max-height: 100%;
+          object-fit: contain;
+        }
+      }
+      // 방어구는 남는 세로 공간을 채워, 투척무기 하단이 스트라타젬 2행 하단과 정렬되게 한다.
+      // slot-body 도 그 높이를 채우되 이미지는 칸 안에 맞춰 축소.
+      &.armor {
+        flex: 1;
+        .slot-body {
+          height: auto;
+          flex: 1;
+          min-height: 120px;
         }
       }
     }
@@ -1703,7 +1901,8 @@ onBeforeUnmount(() => {
     }
     .options {
       width: 100%;
-      height: 100%;
+      flex: 1;
+      min-height: 0;
       display: flex;
       flex-direction: column;
       flex-wrap: nowrap;

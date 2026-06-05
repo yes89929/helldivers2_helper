@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    HD2 장비 자동장착용 OCR 헬퍼.
+    레퍼런스(ChubbyMaru/HD2-Helper Program.cs)의 MatchItemFromScreen 파이프라인을
+    (캡처 + 전처리 + Windows.Media.Ocr "ko-KR" + Repair/Clean + Levenshtein) 거의 그대로 포팅.
+    stdin 한 줄(탭으로 구분된 후보 이름들) → 화면 OCR → 가장 유사한 후보 이름을 stdout 한 줄로 출력.
+
+    빌드(자체 포함 단일 exe → ../ocr/ 로 배치). RuntimeIdentifier/SelfContained/PublishSingleFile은
+    아래 PropertyGroup에 이미 지정되어 있으므로 다음으로 충분:
+      dotnet publish ocr-helper/hd2-ocr-helper.csproj -c Release -o ocr
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>hd2-ocr-helper</AssemblyName>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+  </ItemGroup>
+
+</Project>

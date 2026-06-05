@@ -5,14 +5,10 @@
       <ElectronWindowControl />
     </div>
     <div class="page">
-      <div class="navigation">
-        <h1 class="title">
-          {{ $route.query.type == 'modmanager' ? '모드 관리자' : '전투 보조 및 인터페이스 설정' }}
-        </h1>
-        <!-- <div class="navi">
-          <NuxtLink to="/main" class="button" :class="{ selected: !$route.query.type }">접근성 설정</NuxtLink>
-          <NuxtLink to="/main?type=modmanager" class="button" :class="{ selected: $route.query.type == 'modmanager' }">모드 관리</NuxtLink>
-        </div> -->
+      <!-- 일반(전투 보조) 화면에선 상단 헤더 제거 — 각 열 상단에 제목을 둔다.
+           모드 관리자 화면에서만 헤더 유지. -->
+      <div class="navigation" v-if="$route.query.type == 'modmanager'">
+        <h1 class="title">모드 관리자</h1>
       </div>
       <slot/>
     </div>

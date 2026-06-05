@@ -1,5 +1,7 @@
 import { MoveMouse, Key, keyboard, getForegroundWindowHWND, getWindowText, getWindowRect, KeyPress, KeyRelease, KeyPressAndRelease, TapKey, MouseLeftClick, MouseRightClick, windowFocus, sendText, MouseLeftPress, MouseLeftRelease, MouseRightPress, MouseRightRelease, GetMousePosition, captureScreen } from './src/user32.js'
 import { runStratagemAutoSelect } from './src/loadout-autoselect.js'
+import { runEquipmentAutoSelect } from './src/loadout-equipment-autoselect.js'
+import { startOcrHelper, ocrCurrentItem, stopOcrHelper } from './src/loadout-ocr.js'
 import { app, BrowserWindow, protocol, net, ipcMain, Notification, Menu, dialog, shell, desktopCapturer, screen, clipboard } from 'electron'
 import pkg from 'electron-updater'
 const { autoUpdater } = pkg
@@ -154,6 +156,18 @@ ipcMain.on('autoselect_input_delay', (_, value) => {
   autoselect_input_delay = Math.max(30, Math.min(100, parseInt(value) || 30))
   settings.autoselect_input_delay = autoselect_input_delay
   saveSetting()
+})
+// 장비(방어구/무기) 자동 장착 사용 여부. (스트라타젬과 별도로 끌 수 있음)
+let autoselect_equipment_enabled = true
+ipcMain.on('autoselect_equipment_enabled', (_, value) => {
+  autoselect_equipment_enabled = value
+  settings.autoselect_equipment_enabled = autoselect_equipment_enabled
+  saveSetting()
+})
+// 렌더러가 보내는 현재 장비 로드아웃: { armor, primary, secondary, throwable } → 이름 또는 null.
+let equipmentsets = {}
+ipcMain.on('equipmentsets', (_, obj) => {
+  equipmentsets = obj && typeof obj === 'object' ? obj : {}
 })
 
 let instantfire = true
@@ -506,6 +520,7 @@ if (fs.existsSync(settingPath)) {
   if (settings.displaylength !== undefined) displaylength = settings.displaylength
   if (settings.autoselect_enabled !== undefined) autoselect_enabled = settings.autoselect_enabled
   if (settings.autoselect_input_delay !== undefined) autoselect_input_delay = settings.autoselect_input_delay
+  if (settings.autoselect_equipment_enabled !== undefined) autoselect_equipment_enabled = settings.autoselect_equipment_enabled
 }
 if (fs.existsSync(keysettingPath)) {
   const keyBindsRead = JSON.parse(fs.readFileSync(keysettingPath, 'utf8'))
@@ -1703,14 +1718,17 @@ const createMainWindow = () => {
   const AUTOSELECT_KEYS = {
     up: 'W', down: 'S', left: 'A', right: 'D',
     tabPrev: 'Z', tabNext: 'C', select: 'SPACE',
+    open: 'R', back: 'ESCAPE',
   }
+  const EQUIP_SLOT_KEYS = ['armor', 'primary', 'secondary', 'throwable']
   let autoSelecting = false
   const runAutoSelect = async () => {
     if (autoSelecting) return
     if (!focuswindowIsGame()) return
     if (stratagemRunning || stratagemPending) return
     const names = (stratagemsets || []).map(s => s && s.name).filter(Boolean)
-    if (!names.length) return
+    const eqAny = autoselect_equipment_enabled && EQUIP_SLOT_KEYS.some(k => equipmentsets && equipmentsets[k])
+    if (!names.length && !eqAny) return
     autoSelecting = true
     dynamic_interval_stopper = true
     try {
@@ -1720,13 +1738,29 @@ const createMainWindow = () => {
         if (!k) return
         await TapKey(k, autoselect_input_delay)
       }
-      await runStratagemAutoSelect({
-        selectedNames: names,
-        disabled: new Set(disabledItems),
-        tap,
-        sleep,
-        settleMs: 250,
-      })
+      // 1) 장비 자동 장착 (레퍼런스 순서: 장비 먼저). OCR로 현재 항목 감지 후 격자 이동.
+      if (eqAny) {
+        const ocrHelperPath = path.join(isDev ? app.getAppPath() : path.join(process.resourcesPath, 'app.asar.unpacked'), 'ocr', 'hd2-ocr-helper.exe')
+        await startOcrHelper(ocrHelperPath)
+        await runEquipmentAutoSelect({
+          equipment: equipmentsets,
+          disabled: new Set(disabledItems),
+          tap,
+          ocr: (candidates) => ocrCurrentItem(candidates),
+          sleep,
+          settleMs: 250,
+        })
+      }
+      // 2) 스트라타젬 자동 장착 (기존)
+      if (names.length) {
+        await runStratagemAutoSelect({
+          selectedNames: names,
+          disabled: new Set(disabledItems),
+          tap,
+          sleep,
+          settleMs: 250,
+        })
+      }
     } catch (e) {
       console.error('자동선택 실패:', e)
     } finally {
@@ -2385,6 +2419,7 @@ const createMainWindow = () => {
         disabledItems,
         autoselect_enabled,
         autoselect_input_delay,
+        autoselect_equipment_enabled,
         keyBinds
       })
 
@@ -2491,6 +2526,7 @@ app.whenReady().then(() => {
   // }))
 })
 app.on('window-all-closed', () => {
+  stopOcrHelper()
   if (updateready) {
     autoUpdater.quitAndInstall()
   }
