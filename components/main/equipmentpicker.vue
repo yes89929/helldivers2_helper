@@ -3,6 +3,11 @@
     <div class="panel">
       <div class="head">
         <h2 class="title">{{ slotLabel }} 선택</h2>
+        <label class="hide-toggle" title="비활성(미보유) 장비를 목록에서 숨깁니다">
+          <input type="checkbox" v-model="hideDisabled">
+          <span class="track"><span class="knob"></span></span>
+          <span class="label">비활성 숨기기</span>
+        </label>
         <button class="close" @click="$emit('close')" title="닫기 (Esc)">✕</button>
       </div>
       <input
@@ -16,12 +21,14 @@
           <div class="group-title">{{ g.category }}</div>
           <div class="items">
             <div class="card" v-for="it in g.items" :key="it.name"
-              :class="{ active: selected && selected.name === it.name }"
-              @click="$emit('select', it)"
+              :class="{ active: selected && selected.name === it.name, disabled: f_is_disabled(it) }"
+              @click="f_is_disabled(it) ? null : $emit('select', it)"
+              @contextmenu.prevent="$emit('toggle-disabled', it)"
+              :title="f_is_disabled(it) ? '미보유(자동 장착 제외) — 우클릭으로 보유 표시' : '우클릭: 미보유로 표시(자동 장착에서 제외)'"
             >
               <img class="thumb" :src="imgPath(it.name)" :alt="it.name" loading="lazy">
               <div class="info">
-                <div class="name">{{ it.name }}</div>
+                <div class="name">{{ it.name }}<span v-if="f_is_disabled(it)" class="tag-disabled">미보유</span></div>
                 <div class="desc">{{ it.desc }}</div>
                 <div class="passive" v-if="it.passive">
                   <img class="passive-icon" :src="passiveIcon(it.passive)" :alt="it.passive" loading="lazy">
@@ -43,12 +50,21 @@
 <script setup>
 const props = defineProps({
   slotKey: { type: String, required: true },
-  selected: { type: Object, default: null }
+  selected: { type: Object, default: null },
+  // 미보유(자동 장착 제외) 항목 이름 목록. 스트라타젬과 공유하는 disabled 목록을 그대로 받는다.
+  disabledNames: { type: Array, default: () => [] }
 })
-const emit = defineEmits(['select', 'close'])
+const emit = defineEmits(['select', 'close', 'toggle-disabled'])
+
+const f_is_disabled = (it) => !!it && props.disabledNames.includes(it.name)
 
 const q = ref('')
 const searchEl = ref(null)
+
+// 비활성(미보유) 장비 숨기기 토글. 설정은 localStorage에 기억한다.
+const HIDE_KEY = 'equip_hide_disabled'
+const hideDisabled = ref((() => { try { return localStorage.getItem(HIDE_KEY) === '1' } catch (e) { return false } })())
+watch(hideDisabled, (v) => { try { localStorage.setItem(HIDE_KEY, v ? '1' : '0') } catch (e) {} })
 
 const slotMeta = computed(() => EQUIPMENT_SLOTS.find(s => s.key === props.slotKey))
 const slotLabel = computed(() => slotMeta.value?.label || '')
@@ -77,9 +93,17 @@ const f_matches = (it, term) => {
 
 const filteredGroups = computed(() => {
   const term = q.value.trim().toLowerCase()
-  if (!term) return groups.value
+  const hide = hideDisabled.value
+  if (!term && !hide) return groups.value
   return groups.value
-    .map(g => ({ category: g.category, items: g.items.filter(it => f_matches(it, term)) }))
+    .map(g => ({
+      category: g.category,
+      items: g.items.filter(it => {
+        if (hide && f_is_disabled(it)) return false
+        if (term && !f_matches(it, term)) return false
+        return true
+      })
+    }))
     .filter(g => g.items.length)
 })
 
@@ -115,18 +139,60 @@ onBeforeUnmount(() => window.removeEventListener('keydown', f_onkey))
   .head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     margin-bottom: 12px;
     .title {
       margin: 0;
       font-size: 22px;
     }
+    .hide-toggle {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      user-select: none;
+      input {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .track {
+        position: relative;
+        width: 36px;
+        height: 20px;
+        background: rgba(255, 255, 255, .22);
+        border-radius: 10px;
+        transition: background .15s;
+        .knob {
+          position: absolute;
+          top: 2px;
+          left: 2px;
+          width: 16px;
+          height: 16px;
+          background: white;
+          border-radius: 50%;
+          transition: left .15s;
+        }
+      }
+      input:checked + .track {
+        background: rgb(255, 232, 0);
+        .knob { left: 18px; }
+      }
+      .label {
+        font-size: 12px;
+        opacity: .85;
+        white-space: nowrap;
+      }
+    }
     .close {
+      margin-left: 12px;
       background: transparent;
       border: 2px solid rgba(255, 255, 255, .3);
       color: white;
       width: 32px;
       height: 32px;
+      flex: none;
       cursor: pointer;
       font-size: 14px;
       &:hover {
@@ -192,6 +258,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', f_onkey))
       border-color: rgb(255, 232, 0);
       background: rgba(255, 232, 0, .12);
     }
+    &.disabled {
+      border-style: dashed;
+      border-color: rgba(255, 80, 80, .6);
+      opacity: .5;
+      cursor: default;
+      .thumb { filter: grayscale(1); }
+      &:hover {
+        border-color: rgba(255, 80, 80, .6);
+        background: rgba(0, 0, 0, .3);
+      }
+    }
     .thumb {
       width: 60px;
       height: 60px;
@@ -204,6 +281,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', f_onkey))
         font-size: 14px;
         font-weight: 600;
         margin-bottom: 2px;
+        .tag-disabled {
+          display: inline-block;
+          margin-left: 6px;
+          padding: 0 5px;
+          font-size: 10px;
+          font-weight: 600;
+          color: rgb(255, 120, 120);
+          border: 1px solid rgba(255, 80, 80, .6);
+          border-radius: 3px;
+          vertical-align: middle;
+        }
       }
       .desc {
         font-size: 11px;

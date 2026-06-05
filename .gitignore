@@ -130,3 +130,8 @@ package
 
 # Local reference materials
 .reference/
+
+# OCR 헬퍼 빌드 산출물 (소스는 ocr-helper/, `npm run build:ocr`로 생성)
+/ocr/
+ocr-helper/bin/
+ocr-helper/obj/

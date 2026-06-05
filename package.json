@@ -13,8 +13,9 @@
     "start": "electron-forge start",
     "deploy": "push-dir --dir=dist --branch=gh-pages --cleanup",
     "electron": "set NODE_ENV=development&electron .",
-    "pack": "nuxt generate && electron-builder --dir",
-    "dist": "nuxt generate && electron-builder"
+    "pack": "npm run build:ocr && nuxt generate && electron-builder --dir",
+    "dist": "npm run build:ocr && nuxt generate && electron-builder",
+    "build:ocr": "dotnet publish ocr-helper/hd2-ocr-helper.csproj -c Release -o ocr"
   },
   "dependencies": {
     "electron-updater": "^6.3.9",
@@ -51,10 +52,12 @@
       "!.output/**",
       "!error.vue",
       "!layouts/**",
-      "!pages/**"
+      "!pages/**",
+      "!ocr-helper/**"
     ],
     "asarUnpack": [
-      "ffmpeg/**"
+      "ffmpeg/**",
+      "ocr/**"
     ],
     "directories": {
       "output": "package"

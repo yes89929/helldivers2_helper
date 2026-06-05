@@ -568,7 +568,9 @@
       v-if="_equipment_modal"
       :slot-key="_equipment_modal"
       :selected="_equipment[_equipment_modal]"
+      :disabled-names="_disabled_items"
       @select="f_select_equipment"
+      @toggle-disabled="f_toggle_disabled"
       @close="_equipment_modal = null"
     />
   </div>
@@ -978,6 +980,12 @@ const f_select_equipment = (item) => {
   _equipment_modal.value = null
 }
 const f_equip_image = (key, name) => `/equipment/${key === 'armor' ? 'armors' : 'weapons'}/${name}.png`
+// 현재 장비 로드아웃을 메인 프로세스로 전달(인게임 장비 자동 장착이 소비). 이름 또는 null.
+watch(_equipment, () => {
+  const eq = {}
+  for (const k of _equipment_keys) eq[k] = _equipment.value[k]?.name || null
+  ipcRenderer.send('equipmentsets', eq)
+}, { deep: true })
 
 
 const _stratagem_instant_fire = ref(true)
