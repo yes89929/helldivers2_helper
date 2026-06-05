@@ -1,7 +1,8 @@
 import { MoveMouse, Key, keyboard, getForegroundWindowHWND, getWindowText, getWindowRect, KeyPress, KeyRelease, KeyPressAndRelease, TapKey, MouseLeftClick, MouseRightClick, windowFocus, sendText, MouseLeftPress, MouseLeftRelease, MouseRightPress, MouseRightRelease, GetMousePosition, captureScreen } from './src/user32.js'
 import { runStratagemAutoSelect } from './src/loadout-autoselect.js'
 import { runEquipmentAutoSelect } from './src/loadout-equipment-autoselect.js'
-import { startOcrHelper, ocrCurrentItem, stopOcrHelper } from './src/loadout-ocr.js'
+import { startOcrHelper, ocrCurrentItem, stopOcrHelper, getEngine } from './src/loadout-ocr.js'
+import { detectOneOcr } from './src/oneocr-detect.js'
 import { app, BrowserWindow, protocol, net, ipcMain, Notification, Menu, dialog, shell, desktopCapturer, screen, clipboard } from 'electron'
 import pkg from 'electron-updater'
 const { autoUpdater } = pkg
@@ -20,6 +21,11 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 const listener_inited = {}
 const isDev = process.env.NODE_ENV === 'development'
 if (!isDev) Menu.setApplicationMenu(false)
+
+// OneOCR(캡처도구 엔진) 상태. detectOneOcr 가 userData 로 복사한 디렉터리.
+let oneocrDir = ''
+let cooldownOcrAvailable = false
+let oneocrWarned = false
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, supportFetchAPI: true, secure: true } }
@@ -1741,7 +1747,12 @@ const createMainWindow = () => {
       // 1) 장비 자동 장착 (레퍼런스 순서: 장비 먼저). OCR로 현재 항목 감지 후 격자 이동.
       if (eqAny) {
         const ocrHelperPath = path.join(isDev ? app.getAppPath() : path.join(process.resourcesPath, 'app.asar.unpacked'), 'ocr', 'hd2-ocr-helper.exe')
-        await startOcrHelper(ocrHelperPath)
+        await startOcrHelper(ocrHelperPath, oneocrDir)
+        // 헬퍼가 실제 초기화한 엔진으로 쿨다운 가용성 확정 + 메인 UI 반영(ONEOCR 일 때만 true).
+        if (getEngine()) {
+          cooldownOcrAvailable = (getEngine() === 'ONEOCR')
+          try { windows.main?.webContents.send('ocr_engine', getEngine()) } catch {}
+        }
         await runEquipmentAutoSelect({
           equipment: equipmentsets,
           disabled: new Set(disabledItems),
@@ -2420,6 +2431,8 @@ const createMainWindow = () => {
         autoselect_enabled,
         autoselect_input_delay,
         autoselect_equipment_enabled,
+        cooldownOcrAvailable,
+        ocrEngine: cooldownOcrAvailable ? 'ONEOCR' : 'WINMEDIA',
         keyBinds
       })
 
@@ -2513,11 +2526,34 @@ ipcMain.handle('open_modfile', async () => {
 })
 
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   protocol.handle('app', req => {
     return net.fetch('file://' + path.join(app.getAppPath(), req.url.slice('app://'.length)))
   })
   createMainWindow()
+
+  // OneOCR(캡처 도구 엔진) 탐지 + userData 복사. 없으면 1회 경고.
+  try {
+    const oneocr = await detectOneOcr(app.getPath('userData'))
+    oneocrDir = oneocr.dir || ''
+    cooldownOcrAvailable = !!oneocr.available
+    if (!oneocr.available && !oneocrWarned) {
+      oneocrWarned = true
+      dialog.showMessageBox({
+        type: 'warning',
+        title: 'OneOCR 미탐지',
+        message: 'OneOCR(Windows 캡처 도구 엔진)을 찾지 못했습니다.',
+        detail: '· 스트라타젬 대기시간(쿨다운) 인식 기능을 사용할 수 없습니다.\n'
+          + '· 장비 자동 장착은 기존 엔진으로 계속 동작하지만, 인식 정확도와 성능이 떨어질 수 있습니다.\n\n'
+          + 'Windows 11의 캡처 도구(또는 사진·Xbox 앱)가 설치돼 있으면 자동으로 사용됩니다.',
+        buttons: ['확인'],
+        noLink: true,
+      })
+    }
+  } catch (e) {
+    cooldownOcrAvailable = false
+  }
+
   // 자동 업데이트 비활성화: 시작 시 업스트림 릴리스 확인을 하지 않는다.
   // (다시 켜려면 아래 호출 주석을 복원)
   // autoUpdater.checkForUpdatesAndNotify(new Notification({

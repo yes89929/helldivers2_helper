@@ -30,28 +30,68 @@ internal static class Program
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }
 
+    private enum OcrBackend { OneOcr, WinMedia, None }
+    private static OcrBackend _backend = OcrBackend.None;
     private static OcrEngine? _ocrEngine;
 
-    private static async Task Main()
+    private static async Task Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
         try { Console.InputEncoding = Encoding.UTF8; } catch { /* redirected stdin */ }
 
-        // OCR 엔진 준비 + 워밍업 (레퍼런스 WarmupOcr)
-        try
-        {
-            _ocrEngine = OcrEngine.TryCreateFromLanguage(new Language("ko-KR"));
-            if (_ocrEngine != null)
-            {
-                using var dummy = new SoftwareBitmap(BitmapPixelFormat.Bgra8, 10, 10, BitmapAlphaMode.Premultiplied);
-                await _ocrEngine.RecognizeAsync(dummy);
-            }
-        }
-        catch { _ocrEngine = null; }
+        // OneOCR 모델 디렉터리: argv[0] 우선, 없으면 env (Node가 Get-AppxPackage로 해석해 전달).
+        string oneocrDir = (args.Length > 0 ? args[0] : null) ?? "";
+        if (string.IsNullOrWhiteSpace(oneocrDir))
+            oneocrDir = Environment.GetEnvironmentVariable("HD2_ONEOCR_DIR") ?? "";
 
-        // 준비 신호 (Node 측에서 첫 줄로 readiness 확인)
-        Console.WriteLine(_ocrEngine != null ? "READY" : "NO_OCR");
+        // 1순위 엔진: OneOCR(캡처도구 엔진). 비공식 ABI이므로 어떤 실패든 catch → 폴백.
+        if (!string.IsNullOrWhiteSpace(oneocrDir))
+        {
+            try { if (OneOcrEngine.Init(oneocrDir)) _backend = OcrBackend.OneOcr; }
+            catch { _backend = OcrBackend.None; }
+            if (_backend != OcrBackend.OneOcr)
+                Console.Error.WriteLine("[oneocr-init] " + (OneOcrEngine.LastError ?? "unknown"));
+        }
+
+        // 폴백: Windows.Media.Ocr (장비 자동장착 검증 경로). 워밍업 (레퍼런스 WarmupOcr)
+        if (_backend != OcrBackend.OneOcr)
+        {
+            try
+            {
+                _ocrEngine = OcrEngine.TryCreateFromLanguage(new Language("ko-KR"));
+                if (_ocrEngine != null)
+                {
+                    using var dummy = new SoftwareBitmap(BitmapPixelFormat.Bgra8, 10, 10, BitmapAlphaMode.Premultiplied);
+                    await _ocrEngine.RecognizeAsync(dummy);
+                    _backend = OcrBackend.WinMedia;
+                }
+            }
+            catch { _ocrEngine = null; }
+        }
+
+        // 준비 신호 (Node가 첫 줄로 엔진 종류까지 확인): READY ONEOCR / READY WINMEDIA / NO_OCR
+        Console.WriteLine(_backend == OcrBackend.OneOcr ? "READY ONEOCR"
+            : _backend == OcrBackend.WinMedia ? "READY WINMEDIA" : "NO_OCR");
         Console.Out.Flush();
+
+        // 셀프테스트: `<oneocrDir> --selftest <imagePath>` → 이미지 파일을 직접 인식(게임 불필요).
+        if (args.Length >= 3 && args[1] == "--selftest")
+        {
+            try
+            {
+                using var bmp = new Bitmap(args[2]);
+                using var rgba = bmp.Clone(new Rectangle(0, 0, bmp.Width, bmp.Height), PixelFormat.Format32bppArgb);
+                var d = rgba.LockBits(new Rectangle(0, 0, rgba.Width, rgba.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+                int stride = Math.Abs(d.Stride);
+                byte[] buf = new byte[stride * rgba.Height];
+                Marshal.Copy(d.Scan0, buf, 0, buf.Length);
+                rgba.UnlockBits(d);
+                Console.WriteLine("SELFTEST[" + _backend + "]: " + OneOcrEngine.Recognize(buf, rgba.Width, rgba.Height, stride));
+            }
+            catch (Exception ex) { Console.WriteLine("SELFTEST_ERR: " + ex.Message); }
+            Console.Out.Flush();
+            return;
+        }
 
         string? line;
         while ((line = Console.ReadLine()) != null)
@@ -111,11 +151,9 @@ internal static class Program
         using (var g = Graphics.FromImage(cap))
             g.CopyFromScreen(region.Left, region.Top, 0, 0, cap.Size);
 
-        double scale = 3.5, radius = 3.95;
-        int pad = 90;
+        double scale = 3.5;
         int resizedW = (int)Math.Round(cap.Width * scale);
         int resizedH = (int)Math.Round(cap.Height * scale);
-        int limit = (int)Math.Ceiling(radius);
 
         using var resized = new Bitmap(resizedW, resizedH, PixelFormat.Format32bppArgb);
         using (var rg = Graphics.FromImage(resized))
@@ -124,17 +162,36 @@ internal static class Program
             rg.DrawImage(cap, 0, 0, resized.Width, resized.Height);
         }
 
-        var offsets = new List<(int dx, int dy)>();
-        for (int ky = -limit; ky <= limit; ky++)
-            for (int kx = -limit; kx <= limit; kx++)
-                if (Math.Sqrt(kx * kx + ky * ky) <= radius) offsets.Add((kx, ky));
-
-        int finalW = resized.Width + (pad * 2);
-        int finalH = resized.Height + (pad * 2);
-
         string rawText = "";
-        using (var finalBmp = new Bitmap(finalW, finalH, PixelFormat.Format32bppArgb))
+        if (_backend == OcrBackend.OneOcr)
         {
+            // OneOCR: 전처리 없이 업스케일된 BGRA를 그대로 인식 (흐린 이름까지 정확).
+            var bd = resized.LockBits(new Rectangle(0, 0, resized.Width, resized.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                int stride = Math.Abs(bd.Stride);
+                byte[] bgra = new byte[stride * resized.Height];
+                Marshal.Copy(bd.Scan0, bgra, 0, bgra.Length);
+                rawText = OneOcrEngine.Recognize(bgra, resized.Width, resized.Height, stride);
+            }
+            finally { resized.UnlockBits(bd); }
+        }
+        else
+        {
+            // Windows.Media.Ocr 폴백: 흰픽셀>165 마스크 + dilation 전처리 (검증된 경로).
+            double radius = 3.95;
+            int pad = 90;
+            int limit = (int)Math.Ceiling(radius);
+
+            var offsets = new List<(int dx, int dy)>();
+            for (int ky = -limit; ky <= limit; ky++)
+                for (int kx = -limit; kx <= limit; kx++)
+                    if (Math.Sqrt(kx * kx + ky * ky) <= radius) offsets.Add((kx, ky));
+
+            int finalW = resized.Width + (pad * 2);
+            int finalH = resized.Height + (pad * 2);
+
+            using var finalBmp = new Bitmap(finalW, finalH, PixelFormat.Format32bppArgb);
             BitmapData? srcData = null, dstData = null;
             try
             {
@@ -248,5 +305,104 @@ internal static class Program
             }
         }
         return d[n, m];
+    }
+}
+
+// OneOCR(캡처도구 oneocr.dll) P/Invoke 래퍼. 비공식 RE된 C ABI이므로 모든 호출을 여기 격리.
+// python `oneocr` 래퍼(키/구조체/함수 시그니처)를 C#으로 포팅.
+internal static class OneOcrEngine
+{
+    private const string DLL = "oneocr.dll";
+    // oneocr.dll 의 하드코딩 모델 키 (null 종료).
+    private static readonly byte[] KEY = Encoding.ASCII.GetBytes("kj)TGtrK>f]b[Piow.gU+nC@s\"\"\"\"\"\"4\0");
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool SetDllDirectoryW(string lpPathName);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ImageStruct
+    {
+        public int type;       // 3 = BGRA
+        public int width;
+        public int height;
+        public int reserved;
+        public long step;      // 행당 바이트수 (= width*4 또는 stride)
+        public IntPtr data;    // BGRA 픽셀 포인터
+    }
+
+    [DllImport(DLL)] private static extern long CreateOcrInitOptions(out long opts);
+    [DllImport(DLL)] private static extern long OcrInitOptionsSetUseModelDelayLoad(long opts, byte flag);
+    [DllImport(DLL)] private static extern long CreateOcrPipeline(byte[] modelPath, byte[] key, long opts, out long pipeline);
+    [DllImport(DLL)] private static extern long CreateOcrProcessOptions(out long popts);
+    [DllImport(DLL)] private static extern long OcrProcessOptionsSetMaxRecognitionLineCount(long popts, long count);
+    [DllImport(DLL)] private static extern long RunOcrPipeline(long pipeline, ref ImageStruct img, long popts, out long result);
+    [DllImport(DLL)] private static extern long GetOcrLineCount(long result, out long count);
+    [DllImport(DLL)] private static extern long GetOcrLine(long result, long index, out long line);
+    [DllImport(DLL)] private static extern long GetOcrLineContent(long line, out IntPtr content);
+    [DllImport(DLL)] private static extern void ReleaseOcrResult(long result);
+
+    private static long _pipeline, _initOpts, _procOpts;
+    private static bool _ready;
+    public static string? LastError;
+
+    // dir = oneocr.dll + oneocr.onemodel + onnxruntime.dll 가 있는 폴더.
+    public static bool Init(string dir)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(dir)) { LastError = "empty dir"; return false; }
+            SetDllDirectoryW(dir); // 의존 onnxruntime.dll 을 동일 폴더에서 로드
+            if (CreateOcrInitOptions(out _initOpts) != 0) { LastError = "CreateOcrInitOptions!=0"; return false; }
+            OcrInitOptionsSetUseModelDelayLoad(_initOpts, 0);
+            byte[] modelPath = Encoding.UTF8.GetBytes(Path.Combine(dir, "oneocr.onemodel") + "\0");
+            long rc = CreateOcrPipeline(modelPath, KEY, _initOpts, out _pipeline);
+            if (rc != 0) { LastError = "CreateOcrPipeline rc=" + rc; return false; }
+            if (CreateOcrProcessOptions(out _procOpts) != 0) { LastError = "CreateOcrProcessOptions!=0"; return false; }
+            OcrProcessOptionsSetMaxRecognitionLineCount(_procOpts, 1000);
+            _ready = true;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LastError = ex.GetType().Name + ": " + ex.Message;
+            return false;
+        }
+    }
+
+    // BGRA 버퍼를 인식해 줄 텍스트를 공백으로 이어 반환. 실패 시 빈 문자열.
+    public static string Recognize(byte[] bgra, int width, int height, int step)
+    {
+        if (!_ready) return "";
+        var handle = GCHandle.Alloc(bgra, GCHandleType.Pinned);
+        try
+        {
+            var img = new ImageStruct
+            {
+                type = 3,
+                width = width,
+                height = height,
+                reserved = 0,
+                step = step,
+                data = handle.AddrOfPinnedObject()
+            };
+            if (RunOcrPipeline(_pipeline, ref img, _procOpts, out long result) != 0) return "";
+            try
+            {
+                if (GetOcrLineCount(result, out long lineCount) != 0) return "";
+                var sb = new StringBuilder();
+                for (long i = 0; i < lineCount; i++)
+                {
+                    if (GetOcrLine(result, i, out long line) != 0) continue;
+                    if (GetOcrLineContent(line, out IntPtr content) == 0 && content != IntPtr.Zero)
+                    {
+                        string s = Marshal.PtrToStringUTF8(content) ?? "";
+                        if (s.Length > 0) { if (sb.Length > 0) sb.Append(' '); sb.Append(s); }
+                    }
+                }
+                return sb.ToString();
+            }
+            finally { ReleaseOcrResult(result); }
+        }
+        finally { handle.Free(); }
     }
 }

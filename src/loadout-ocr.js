@@ -9,16 +9,17 @@ let proc = null
 let readyPromise = null
 let readyResolve = null
 let buffer = ''
+let engine = null // 'ONEOCR' | 'WINMEDIA' | null
 const queue = [] // [{ resolve, timer }]
 
 const CALL_TIMEOUT_MS = 6000
 
 // 헬퍼를 (필요 시) 시작하고, READY 신호를 기다리는 Promise를 돌려준다.
-export function startOcrHelper(exePath) {
+export function startOcrHelper(exePath, oneocrDir) {
   if (proc) return readyPromise
   readyPromise = new Promise((resolve) => { readyResolve = resolve })
   try {
-    proc = spawn(exePath, [], { windowsHide: true })
+    proc = spawn(exePath, [oneocrDir || ''], { windowsHide: true })
   } catch (e) {
     proc = null
     readyResolve?.(false)
@@ -32,8 +33,10 @@ export function startOcrHelper(exePath) {
       const line = buffer.slice(0, idx).replace(/\r$/, '')
       buffer = buffer.slice(idx + 1)
       if (readyResolve) {
-        // 첫 줄은 READY / NO_OCR
-        readyResolve(line === 'READY')
+        // 첫 줄: "READY ONEOCR" / "READY WINMEDIA" / "NO_OCR"
+        const parts = line.split(' ')
+        if (parts[0] === 'READY') { engine = parts[1] || 'WINMEDIA'; readyResolve(true) }
+        else { engine = null; readyResolve(false) }
         readyResolve = null
         continue
       }
@@ -46,6 +49,7 @@ export function startOcrHelper(exePath) {
   })
   const cleanup = () => {
     proc = null
+    engine = null
     if (readyResolve) { readyResolve(false); readyResolve = null }
     while (queue.length) { const j = queue.shift(); clearTimeout(j.timer); j.resolve(null) }
     buffer = ''
@@ -87,4 +91,9 @@ export function ocrCurrentItem(candidates) {
 
 export function isOcrRunning() {
   return !!proc
+}
+
+// 현재 헬퍼가 초기화한 엔진: 'ONEOCR' | 'WINMEDIA' | null(미기동/실패)
+export function getEngine() {
+  return engine
 }
