@@ -199,7 +199,7 @@ export const ORBITAL_CANNONS = [
     name: 'Orbital Railcannon Strike',
     keys: ['right', 'up', 'down', 'down', 'right'],
     icon: '/stratagems/Orbital Cannons/Orbital Railcannon Strike.svg',
-    cooldown: 1000 * 210,
+    cooldown: 1000 * 180,
     takedown: 1000 * 10,
     type: 'attack',
     index: 7
@@ -211,7 +211,7 @@ export const HANGER = [
     name: 'Eagle Strafing Run',
     keys: ['up', 'right', 'right'],
     icon: '/stratagems/Hangar/Eagle Strafing Run.svg',
-    cooldown: 1000 * 8,
+    cooldown: 1000 * 15,
     takedown: 1000 * 5,
     type: 'attack',
     index: 13
@@ -220,7 +220,7 @@ export const HANGER = [
     name: 'Eagle Airstrike',
     keys: ['up', 'right', 'down', 'right'],
     icon: '/stratagems/Hangar/Eagle Airstrike.svg',
-    cooldown: 1000 * 8,
+    cooldown: 1000 * 15,
     takedown: 1000 * 5,
     type: 'attack',
     index: 15
@@ -229,7 +229,7 @@ export const HANGER = [
     name: 'Eagle Cluster Bomb',
     keys: ['up', 'right', 'down', 'down', 'right'],
     icon: '/stratagems/Hangar/Eagle Cluster Bomb.svg',
-    cooldown: 1000 * 8,
+    cooldown: 1000 * 15,
     takedown: 1000 * 5,
     type: 'attack',
     index: 16
@@ -238,7 +238,7 @@ export const HANGER = [
     name: 'Eagle Napalm Airstrike',
     keys: ['up', 'right', 'down', 'up'],
     icon: '/stratagems/Hangar/Eagle Napalm Airstrike.svg',
-    cooldown: 1000 * 8,
+    cooldown: 1000 * 15,
     takedown: 1000 * 5,
     type: 'attack',
     index: 17
@@ -257,7 +257,7 @@ export const HANGER = [
     name: 'Eagle Smoke Strike',
     keys: ['up', 'right', 'up', 'down'],
     icon: '/stratagems/Hangar/Eagle Smoke Strike.svg',
-    cooldown: 1000 * 8,
+    cooldown: 1000 * 15,
     takedown: 1000 * 5,
     type: 'attack',
     index: 18
@@ -266,7 +266,7 @@ export const HANGER = [
     name: 'Eagle 110MM Rocket Pods',
     keys: ['up', 'right', 'up', 'left'],
     icon: '/stratagems/Hangar/Eagle 110MM Rocket Pods.svg',
-    cooldown: 1000 * 8,
+    cooldown: 1000 * 15,
     takedown: 1000 * 5,
     type: 'attack',
     index: 14
@@ -275,7 +275,7 @@ export const HANGER = [
     name: 'Eagle 500KG Bomb',
     keys: ['up', 'right', 'down', 'down', 'down'],
     icon: '/stratagems/Hangar/Eagle 500KG Bomb.svg',
-    cooldown: 1000 * 8,
+    cooldown: 1000 * 15,
     takedown: 1000 * 5,
     type: 'attack',
     index: 12
@@ -324,7 +324,7 @@ export const BRIDGE = [
     name: 'Orbital Smoke Strike',
     keys: ['right', 'right', 'down', 'up'],
     icon: '/stratagems/Bridge/Orbital Smoke Strike.svg',
-    cooldown: 1000 * 100,
+    cooldown: 1000 * 75,
     takedown: 1000 * 10,
     type: 'attack',
     index: 11
@@ -374,7 +374,7 @@ export const BRIDGE = [
     name: 'A/GM-17 Gas Mortar Sentry',
     keys: ['down', 'up', 'right', 'down', 'left'],
     icon: '/stratagems/Entrenched Division/Gas_Mortar_Sentry.svg',
-    cooldown: 1000 * 480,
+    cooldown: 1000 * 180,
     takedown: 1000 * 10,
     type: 'defense',
     index: 17
@@ -387,7 +387,7 @@ export const ENGINEERING_BAY = [
     name: 'Anti-Personnel Minefield',
     keys: ['down', 'left', 'up', 'right'],
     icon: '/stratagems/Engineering Bay/Anti-Personnel Minefield.svg',
-    cooldown: 1000 * 180,
+    cooldown: 1000 * 120,
     takedown: 1000 * 10,
     type: 'defense',
     index: 15
@@ -427,7 +427,7 @@ export const ENGINEERING_BAY = [
     name: 'Incendiary Mines',
     keys: ['down', 'left', 'left', 'down'],
     icon: '/stratagems/Engineering Bay/Incendiary Mines.svg',
-    cooldown: 1000 * 180,
+    cooldown: 1000 * 120,
     takedown: 1000 * 10,
     type: 'defense',
     index: 16
@@ -447,7 +447,7 @@ export const ENGINEERING_BAY = [
     name: 'Ballistic Shield Backpack',
     keys: ['down', 'left', 'down', 'down', 'up', 'left'],
     icon: '/stratagems/Engineering Bay/Ballistic Shield Backpack.svg',
-    cooldown: 1000 * 300,
+    cooldown: 1000 * 240,
     takedown: 1000 * 10,
     type: 'supply',
     index: 30
@@ -467,7 +467,7 @@ export const ENGINEERING_BAY = [
     name: 'Anti-Tank Mines',
     keys: ['down', 'left', 'up', 'up'],
     icon: '/stratagems/Engineering Bay/Anti-Tank Mines.svg',
-    cooldown: 1000 * 180,
+    cooldown: 1000 * 120,
     takedown: 1000 * 10,
     type: 'defense',
     index: 13
@@ -643,7 +643,7 @@ export const WARGBOUNDS = [
     name: 'Flame Sentry',
     keys: ['down', 'up', 'right', 'down', 'up', 'up'],
     icon: '/stratagems/Urban Legends/Flame Sentry.svg',
-    cooldown: 1000 * 150,
+    cooldown: 1000 * 100,
     takedown: 1000 * 10,
     type: 'defense',
     index: 2
@@ -690,7 +690,7 @@ export const GENERAL_STRATEGEMS = [
     name: 'Resupply',
     keys: ['down', 'down', 'up', 'right'],
     icon: '/stratagems/General Stratagems/Resupply.svg',
-    cooldown: 1000 * 160,
+    cooldown: 1000 * 180,
     takedown: 1000 * 15
   },
   {
@@ -719,7 +719,7 @@ export const GENERAL_STRATEGEMS = [
     name: 'SEAF Artillery',
     keys: ['right', 'up', 'up', 'down'],
     icon: '/stratagems/General Stratagems/SEAF Artillery.svg',
-    cooldown: 1000 * 5,
+    cooldown: 1000 * 0,
     takedown: 1000 * 10,
     type: 'general',
     index: 0
@@ -914,7 +914,7 @@ export const NEW_SUPPLY_UPGRADE = [
     name: 'TD-220 Bastion MK XVI',
     keys: ['left', 'down', 'right', 'down', 'left', 'down', 'up', 'down', 'up'],
     icon: '/stratagems/Siege Breakers/Bastion MK XVI.svg',
-    cooldown: 1000 * 600,
+    cooldown: 1000 * 780,
     takedown: 1000 * 15,
     type: 'supply',
     index: 108

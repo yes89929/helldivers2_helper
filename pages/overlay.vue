@@ -9,6 +9,7 @@
           v-if="f_cooldown(stratagem) > 0"
           :style="{ 'clip-path': `polygon(0 ${f_cooldown(stratagem) * 100}%, 100% ${f_cooldown(stratagem) * 100}%, 100% 100%, 0% 100%)` }"
         >
+        <div class="cdtimer" v-if="f_cooldown(stratagem) > 0" :class="{ estimate: !f_using_ocr(stratagem) }">{{ f_remain_seconds(stratagem) }}s</div>
         <div class="rotatekey" v-if="index == 0">{{ f_get_key_string(_rotatekey) }}</div>
         <div class="rotatekey" v-else-if="index == _stratagems.length - 1">{{ f_get_key_string(_rotatekey_reverse) }}</div>
         <div class="hotkey" v-if="stratagem.hotkey">{{ f_get_key_string(stratagem.hotkey) }}</div>
@@ -57,6 +58,17 @@ ipcRenderer.on('stratagemFire', stratagem => {
   }
 })
 
+// OCR로 읽은 실제 잔여 쿨다운(권위값). rows: [{ name, remainMs }]
+ipcRenderer.on('stratagemCooldowns', rows => {
+  if (!Array.isArray(rows)) return
+  const now = Date.now()
+  rows.forEach(row => {
+    if (!row || !row.name) return
+    const target = _stratagems.value.find(s => s.name == row.name)
+    if (target) { target.ocrRemainMs = row.remainMs; target.ocrAt = now }
+  })
+})
+
 const _focusindex = ref(-1)
 ipcRenderer.on('stratagemFocus', index => {
   _focusindex.value = index
@@ -83,13 +95,33 @@ const _now = ref(Date.now())
 setInterval(() => {
   _now.value = Date.now()
 }, 100)
-const f_cooldown = (stratagem) => {
-  if (!stratagem.lastFire) return 0
-  const cooldown = stratagem.cooldown + stratagem.takedown
-  const remain = cooldown - (_now.value - stratagem.lastFire)
-  if (remain <= 0) return 0
-  return remain / cooldown
+// 잔여 ms: OCR 실측을 우선하되, 던짐(lastFire)이 OCR 샘플(ocrAt)보다 나중이면 정적 추정이 최신.
+const f_remain_ms = (stratagem) => {
+  const ocr = (stratagem.ocrRemainMs != null && stratagem.ocrAt)
+    ? stratagem.ocrRemainMs - (_now.value - stratagem.ocrAt)
+    : null
+  const est = stratagem.lastFire
+    ? (stratagem.cooldown + stratagem.takedown) - (_now.value - stratagem.lastFire)
+    : null
+  let useOcr = ocr != null
+  if (useOcr && stratagem.lastFire && stratagem.ocrAt && stratagem.lastFire > stratagem.ocrAt) useOcr = false
+  const remain = useOcr ? ocr : est
+  return remain && remain > 0 ? remain : 0
 }
+// 현재 표시값이 OCR 실측 기반인지(정적 추정이면 false → '추정' 흐린 색)
+const f_using_ocr = (stratagem) => {
+  if (stratagem.ocrRemainMs == null || !stratagem.ocrAt) return false
+  if (stratagem.lastFire && stratagem.lastFire > stratagem.ocrAt) return false
+  return (stratagem.ocrRemainMs - (_now.value - stratagem.ocrAt)) > 0
+}
+// 아이콘 채움 비율(0~1). 숫자는 정확, 바는 정적 총량 기준 근사.
+const f_cooldown = (stratagem) => {
+  const remain = f_remain_ms(stratagem)
+  if (remain <= 0) return 0
+  const total = (stratagem.cooldown + stratagem.takedown) || remain
+  return Math.min(1, remain / total)
+}
+const f_remain_seconds = (stratagem) => Math.ceil(f_remain_ms(stratagem) / 1000)
 
 const _cinematic_mode = ref(false)
 ipcRenderer.on('cinematic_mode', v => {
@@ -219,6 +251,18 @@ ipcRenderer.on('keybinds', v => {
         opacity: 1;
         position: absolute;
       }
+      .cdtimer {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 9vh;
+        font-weight: 700;
+        color: #fff;
+        text-shadow: 0 0 1.2vh #000, 0 0 0.6vh #000;
+        pointer-events: none;
+        &.estimate { color: #b8b8b8; }
+      }
       .rotatekey {
         position: absolute;
         bottom: -7.5vh;
@@ -255,6 +299,9 @@ ipcRenderer.on('keybinds', v => {
         .hotkey {
           font-size: 5vh;
           top: -3.5vh;
+        }
+        .cdtimer {
+          font-size: 6vh;
         }
       }
     }

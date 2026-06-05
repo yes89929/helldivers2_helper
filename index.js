@@ -1,8 +1,9 @@
 import { MoveMouse, Key, keyboard, getForegroundWindowHWND, getWindowText, getWindowRect, KeyPress, KeyRelease, KeyPressAndRelease, TapKey, MouseLeftClick, MouseRightClick, windowFocus, sendText, MouseLeftPress, MouseLeftRelease, MouseRightPress, MouseRightRelease, GetMousePosition, captureScreen } from './src/user32.js'
 import { runStratagemAutoSelect } from './src/loadout-autoselect.js'
 import { runEquipmentAutoSelect } from './src/loadout-equipment-autoselect.js'
-import { startOcrHelper, ocrCurrentItem, stopOcrHelper, getEngine } from './src/loadout-ocr.js'
+import { startOcrHelper, ocrCurrentItem, stopOcrHelper, getEngine, ocrCooldowns, isOcrRunning } from './src/loadout-ocr.js'
 import { detectOneOcr } from './src/oneocr-detect.js'
+import { STRATAGEM_NAMES_KR } from './src/stratagem-names-kr.js'
 import { app, BrowserWindow, protocol, net, ipcMain, Notification, Menu, dialog, shell, desktopCapturer, screen, clipboard } from 'electron'
 import pkg from 'electron-updater'
 const { autoUpdater } = pkg
@@ -26,6 +27,10 @@ if (!isDev) Menu.setApplicationMenu(false)
 let oneocrDir = ''
 let cooldownOcrAvailable = false
 let oneocrWarned = false
+// 인게임 한글 잼 이름 → 영문(쿨다운 OCR 결과를 오버레이 영문 이름에 매핑)
+const KR_TO_EN = Object.fromEntries(Object.entries(STRATAGEM_NAMES_KR).map(([en, kr]) => [kr, en]))
+const ocrHelperExePath = () => path.join(isDev ? app.getAppPath() : path.join(process.resourcesPath, 'app.asar.unpacked'), 'ocr', 'hd2-ocr-helper.exe')
+let cdLoopStarted = false // 쿨다운 OCR 루프 중복 기동 방지(createMainWindow 재호출 대비)
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, supportFetchAPI: true, secure: true } }
@@ -1719,6 +1724,27 @@ const createMainWindow = () => {
 
   const focuswindowIsGame = () => focuswindow == 'HELLDIVERS™ 2'
 
+  // 쿨다운 OCR 루프: 잼 메뉴(Ctrl Hold)가 열린 동안 화면의 쿨다운 텍스트를 읽어 오버레이 보정.
+  // self-gating(메뉴 닫힘/게임 비포커스/OneOCR 없음/헬퍼 미기동 시 no-op). in-flight 중복 방지.
+  if (!cdLoopStarted) {
+    cdLoopStarted = true
+    let cdInFlight = false
+    setInterval(async () => {
+      if (cdInFlight || !cooldownOcrAvailable || !stratagem_opened || !isOcrRunning() || !focuswindowIsGame()) return
+      const krNames = (stratagemsets || []).map(s => s && STRATAGEM_NAMES_KR[s.name]).filter(Boolean)
+      if (!krNames.length) return
+      cdInFlight = true
+      try {
+        const rows = await ocrCooldowns(krNames)
+        if (rows && rows.length && windows.overlay) {
+          windows.overlay.webContents.send('stratagemCooldowns',
+            rows.map(r => ({ name: KR_TO_EN[r.name] || r.name, remainMs: r.remainMs })))
+        }
+      } catch {}
+      finally { cdInFlight = false }
+    }, 350)
+  }
+
   // 자동 장착(자동 선택): 로드아웃 화면에서 격자 탐색에 쓰는 게임 메뉴 기본키.
   // (참조 HD2-Helper와 동일하게 WASD/Space/Z/C 고정 — 게임 메뉴 이동 기본 바인딩 가정)
   const AUTOSELECT_KEYS = {
@@ -2549,6 +2575,14 @@ app.whenReady().then(async () => {
         buttons: ['확인'],
         noLink: true,
       })
+    }
+    // OneOCR 가용 시 헬퍼를 부팅에 선기동(모델 로드 ~445ms 숨김 + 쿨다운 OCR 준비).
+    if (oneocr.available) {
+      try {
+        await startOcrHelper(ocrHelperExePath(), oneocrDir)
+        cooldownOcrAvailable = (getEngine() === 'ONEOCR')
+        try { windows.main?.webContents.send('ocr_engine', getEngine()) } catch {}
+      } catch {}
     }
   } catch (e) {
     cooldownOcrAvailable = false

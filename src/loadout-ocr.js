@@ -89,6 +89,40 @@ export function ocrCurrentItem(candidates) {
   })
 }
 
+// 잼 메뉴의 쿨다운을 OCR로 인식. names=인게임 한글 잼 이름들.
+// 반환: [{ name(한글), remainMs }]. 실패/타임아웃 시 [].
+export function ocrCooldowns(names) {
+  return new Promise((resolveP) => {
+    if (!proc || !proc.stdin || !proc.stdin.writable) { resolveP([]); return }
+    const onLine = (line) => {
+      if (!line) { resolveP([]); return }
+      const rows = []
+      for (const part of String(line).split('|')) {
+        const eq = part.lastIndexOf('=')
+        if (eq <= 0) continue
+        const name = part.slice(0, eq).trim()
+        const sec = parseInt(part.slice(eq + 1), 10)
+        if (name && !Number.isNaN(sec)) rows.push({ name, remainMs: sec * 1000 })
+      }
+      resolveP(rows)
+    }
+    const timer = setTimeout(() => {
+      const i = queue.findIndex((j) => j.timer === timer)
+      if (i !== -1) queue.splice(i, 1)
+      resolveP([])
+    }, CALL_TIMEOUT_MS)
+    queue.push({ resolve: onLine, timer })
+    try {
+      proc.stdin.write('COOLDOWNS\t' + (names || []).join('\t') + '\n')
+    } catch (e) {
+      clearTimeout(timer)
+      const i = queue.findIndex((j) => j.timer === timer)
+      if (i !== -1) queue.splice(i, 1)
+      resolveP([])
+    }
+  })
+}
+
 export function isOcrRunning() {
   return !!proc
 }
