@@ -1,6 +1,6 @@
 <template>
   <div class="equip-modal" @click.self="$emit('close')">
-    <div class="panel">
+    <div class="panel" :class="{ armor: isArmor }">
       <div class="head">
         <h2 class="title">{{ slotLabel }} 선택</h2>
         <label class="hide-toggle" title="비활성(미보유) 장비를 목록에서 숨깁니다">
@@ -128,6 +128,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', f_onkey))
   .panel {
     width: 760px;
     max-width: calc(100vw - 60px);
+    // 방어구 선택 팝업은 폭을 넓혀 3열로 표시한다.
+    &.armor {
+      width: 1040px;
+      .items {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
     max-height: 82vh;
     box-sizing: border-box;
     background: rgb(20, 21, 24);
