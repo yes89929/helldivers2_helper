@@ -9,16 +9,17 @@ let proc = null
 let readyPromise = null
 let readyResolve = null
 let buffer = ''
+let engine = null // 'ONEOCR' | 'WINMEDIA' | null
 const queue = [] // [{ resolve, timer }]
 
 const CALL_TIMEOUT_MS = 6000
 
 // 헬퍼를 (필요 시) 시작하고, READY 신호를 기다리는 Promise를 돌려준다.
-export function startOcrHelper(exePath) {
+export function startOcrHelper(exePath, oneocrDir) {
   if (proc) return readyPromise
   readyPromise = new Promise((resolve) => { readyResolve = resolve })
   try {
-    proc = spawn(exePath, [], { windowsHide: true })
+    proc = spawn(exePath, [oneocrDir || ''], { windowsHide: true })
   } catch (e) {
     proc = null
     readyResolve?.(false)
@@ -32,8 +33,10 @@ export function startOcrHelper(exePath) {
       const line = buffer.slice(0, idx).replace(/\r$/, '')
       buffer = buffer.slice(idx + 1)
       if (readyResolve) {
-        // 첫 줄은 READY / NO_OCR
-        readyResolve(line === 'READY')
+        // 첫 줄: "READY ONEOCR" / "READY WINMEDIA" / "NO_OCR"
+        const parts = line.split(' ')
+        if (parts[0] === 'READY') { engine = parts[1] || 'WINMEDIA'; readyResolve(true) }
+        else { engine = null; readyResolve(false) }
         readyResolve = null
         continue
       }
@@ -46,6 +49,7 @@ export function startOcrHelper(exePath) {
   })
   const cleanup = () => {
     proc = null
+    engine = null
     if (readyResolve) { readyResolve(false); readyResolve = null }
     while (queue.length) { const j = queue.shift(); clearTimeout(j.timer); j.resolve(null) }
     buffer = ''
@@ -85,6 +89,45 @@ export function ocrCurrentItem(candidates) {
   })
 }
 
+// 잼 메뉴의 쿨다운을 OCR로 인식. names=인게임 한글 잼 이름들.
+// 반환: [{ name(한글), remainMs }]. 실패/타임아웃 시 [].
+export function ocrCooldowns(names) {
+  return new Promise((resolveP) => {
+    if (!proc || !proc.stdin || !proc.stdin.writable) { resolveP([]); return }
+    const onLine = (line) => {
+      if (!line) { resolveP([]); return }
+      const rows = []
+      for (const part of String(line).split('|')) {
+        const eq = part.lastIndexOf('=')
+        if (eq <= 0) continue
+        const name = part.slice(0, eq).trim()
+        const sec = parseInt(part.slice(eq + 1), 10)
+        if (name && !Number.isNaN(sec)) rows.push({ name, remainMs: sec * 1000 })
+      }
+      resolveP(rows)
+    }
+    const timer = setTimeout(() => {
+      const i = queue.findIndex((j) => j.timer === timer)
+      if (i !== -1) queue.splice(i, 1)
+      resolveP([])
+    }, CALL_TIMEOUT_MS)
+    queue.push({ resolve: onLine, timer })
+    try {
+      proc.stdin.write('COOLDOWNS\t' + (names || []).join('\t') + '\n')
+    } catch (e) {
+      clearTimeout(timer)
+      const i = queue.findIndex((j) => j.timer === timer)
+      if (i !== -1) queue.splice(i, 1)
+      resolveP([])
+    }
+  })
+}
+
 export function isOcrRunning() {
   return !!proc
+}
+
+// 현재 헬퍼가 초기화한 엔진: 'ONEOCR' | 'WINMEDIA' | null(미기동/실패)
+export function getEngine() {
+  return engine
 }

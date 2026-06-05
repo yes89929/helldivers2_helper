@@ -187,6 +187,16 @@
             <div class="option">
               <div class="meta">
                 <div class="deco"/>
+                <div class="name">OCR 엔진</div>
+              </div>
+              <div
+                :style="{ alignSelf: 'center', fontWeight: 700, color: _ocr_engine === 'ONEOCR' ? '#8BE9A0' : _ocr_engine === 'WINMEDIA' ? '#FFB454' : '#888' }"
+                :title="_ocr_engine === 'ONEOCR' ? 'OneOCR(Windows 캡처 도구 엔진) 사용 중 — 장비 이름/쿨다운 인식 정확' : _ocr_engine === 'WINMEDIA' ? 'OneOCR 미탐지 — 장비 자동 장착은 기본 엔진으로 동작(정확도 낮음), 스트라타젬 대기시간 인식 불가' : ''"
+              >{{ _ocr_engine === 'ONEOCR' ? 'OneOCR' : _ocr_engine === 'WINMEDIA' ? 'Windows 기본 (제한적)' : '확인 중…' }}</div>
+            </div>
+            <div class="option">
+              <div class="meta">
+                <div class="deco"/>
                 <div class="name">자동 장착 단축키</div>
               </div>
               <div class="shortcut" @click="f_set_key('autoselect', '스트라타젬 자동 장착 단축키')">{{ f_get_key_string(_bindkeys.autoselect) || '미설정' }}</div>
@@ -1051,6 +1061,11 @@ watch(_autoselect_enabled, () => {
 ipcRenderer.on('autoselect_enabled', v => {
   _autoselect_enabled.value = v
 })
+// 현재 사용 중인 OCR 엔진: 'ONEOCR'(캡처도구 엔진) | 'WINMEDIA'(기본) | ''(미확인)
+const _ocr_engine = ref('')
+ipcRenderer.on('ocr_engine', v => {
+  if (v) _ocr_engine.value = v
+})
 const _autoselect_input_delay = ref(30)
 watch(_autoselect_input_delay, () => {
   ipcRenderer.send('autoselect_input_delay', parseInt(_autoselect_input_delay.value || 30) || 30)
@@ -1383,6 +1398,7 @@ ipcRenderer.on('initSettings', v => {
   if (Array.isArray(v.disabledItems)) _disabled_items.value = v.disabledItems
   if (v.autoselect_enabled !== undefined) _autoselect_enabled.value = v.autoselect_enabled
   if (v.autoselect_input_delay !== undefined) _autoselect_input_delay.value = v.autoselect_input_delay
+  if (v.ocrEngine) _ocr_engine.value = v.ocrEngine
   _bindkeys.value = v.keyBinds
 })
 
