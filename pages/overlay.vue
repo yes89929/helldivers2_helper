@@ -245,7 +245,8 @@ ipcRenderer.on('keybinds', v => {
       &.focus {
         border-color: rgb(255, 232, 0);
         background: rgba(0, 0, 0, .3);
-        transform: scale(1);
+        // 쿨타임/로테이션 종료 시 아이콘이 커진 채로 가끔 복구되지 않는 문제 → 확대(scale) 효과 제거.
+        // 포커스 표시는 테두리/배경만으로 충분하다.
       }
       .cooldown {
         opacity: 1;
