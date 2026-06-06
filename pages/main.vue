@@ -14,7 +14,7 @@
                     @click="f_isSelected(stratagem) ? f_removestratagem(stratagem) : f_addstratagem(stratagem)"
                     @contextmenu.prevent="f_toggle_disabled(stratagem)"
                     :class="{ selected: f_isSelected(stratagem), disabled: f_is_disabled(stratagem) }"
-                    :title="f_is_disabled(stratagem) ? '미보유(자동 장착 제외) — 우클릭으로 해제' : '우클릭: 미보유로 표시(자동 장착에서 제외)'"
+                    :title="f_stratagem_label(stratagem) + (f_is_disabled(stratagem) ? '\n미보유(자동 장착 제외) — 우클릭으로 해제' : '\n우클릭: 미보유로 표시(자동 장착에서 제외)')"
                   >
                     <img :src="stratagem.icon" alt="">
                     <!-- <span v-if="stratagem.code">{{ stratagem.code }} </span>{{ stratagem.name }} {{ stratagem.index }} -->
@@ -29,6 +29,7 @@
               <div class="stratagem" v-for="i in 6" :key="i"
                 @click="f_removestratagem(_stratagemsets[i])"
                 :class="{ selected: _stratagemsets[i] }"
+                :title="f_stratagem_label(_stratagemsets[i])"
               >
                 <img :src="_stratagemsets[i]?.icon" alt="">
               </div>
@@ -40,6 +41,7 @@
                 <div class="stratagem" v-for="i in c_mission_slot_count" :key="i"
                   :class="{ selected: _mission_stratagems[i - 1] }"
                   @click="_mission_stratagems[i - 1] && f_removestratagem(_mission_stratagems[i - 1])"
+                  :title="f_stratagem_label(_mission_stratagems[i - 1])"
                 >
                   <img :src="_mission_stratagems[i - 1]?.icon" alt="">
                 </div>
@@ -49,6 +51,7 @@
                 <div class="stratagem" v-for="(stratagem, index) in _default_stratagems" :key="stratagem.name"
                   @click="_default_stratagems_hidden[index] = _default_stratagems_hidden[index] ? false : true"
                   :class="{ hidden: _default_stratagems_hidden[index] }"
+                  :title="f_stratagem_label(stratagem)"
                 >
                   <img :src="stratagem.icon" alt="">
                 </div>
@@ -808,6 +811,11 @@ const f_isSelected = stratagem => {
 /* ===== 미보유(자동 장착 제외) 스트라타젬 ===== */
 // 인게임 격자에서 미보유 항목을 빼야 좌표가 일치하므로, 우클릭으로 제외 목록을 관리한다.
 const _disabled_items = ref([])
+// 마우스 호버 툴팁용 표시 이름. 한국어 이름이 없으므로 코드+영문명(예: "MG-43 Machine Gun")으로 표기.
+const f_stratagem_label = (stratagem) => {
+  if (!stratagem) return ''
+  return stratagem.code ? `${stratagem.code} ${stratagem.name}` : stratagem.name
+}
 const f_is_disabled = (stratagem) => !!stratagem && _disabled_items.value.includes(stratagem.name)
 const f_toggle_disabled = (stratagem) => {
   if (!stratagem) return
@@ -1680,6 +1688,9 @@ onBeforeUnmount(() => {
             &.disabled {
               border-style: dashed;
               border-color: rgba(255, 80, 80, .6);
+              // 전역 .disabled 규칙이 pointer-events:none 을 걸어 우클릭 해제가 막히는 문제 복구.
+              pointer-events: auto;
+              cursor: pointer;
               img {
                 opacity: .25;
                 filter: grayscale(1);
