@@ -36,7 +36,7 @@
   },
   "build": {
     "appId": "com.example.hdhelper",
-    "artifactName": "hdhelper-${version}.${ext}",
+    "artifactName": "hdhelper-${version}-installer.${ext}",
     "productName": "Helldivers2 Helper",
     "files": [
       "!.reference/**",
